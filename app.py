@@ -1,6 +1,8 @@
-from flask import Flask
+from views import create_app
 
-app = Flask(__name__)
+csv_path = '/static/archive/raw_rfm_sales_transactions_(V2).csv'
+
+app = create_app()
 
 
 @app.route('/')

@@ -1,0 +1,64 @@
+{% extends 'layout_t.html' %}
+
+{% block body %}
+	<!-- 使用卡片统一包裹，加上阴影和圆角 -->
+    <div class="card shadow-sm border-0 rounded-3">
+
+        <!-- 卡片头部：放置操作按钮 -->
+        <div class="card-header bg-white border-bottom pt-3 pb-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold text-dark">订单列表</h5>
+            <a class="btn btn-success px-3 rounded-2" href="/order/create">
+                <i class="bi bi-plus-circle me-1"></i>添加订单
+            </a>
+        </div>
+
+        <!-- 卡片主体：放置表格。table-responsive 保证小屏幕下表格可横向滚动 -->
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <!-- 去掉 table-bordered，加上 align-middle 让内容垂直居中，mb-0 去除底部多余间距 -->
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light text-secondary">
+                        <tr>
+                            <!-- 加一些列宽控制，让表格布局更合理 -->
+                            <th class="ps-4" style="width: 80px;">ID</th>
+                            <th>URL</th>
+                            <th style="width: 100px;">数量</th>
+                            <th style="width: 120px;">状态</th>
+                            <th style="width: 100px;">用户ID</th>
+                            <th style="width: 120px;">用户名称</th>
+                            <th style="width: 120px;">用户角色</th>
+                            <th style="width: 120px;">操作</th>
+                        </tr>
+                    </thead>
+
+                    <!-- 注意：tbody 必须写在 for 循环外面！ -->
+                    <tbody>
+                        {% for data in datalist %}
+                        <tr>
+                            <td class="ps-4 text-secondary fw-medium">{{ data.id }}</td>
+                            <td class="text-primary">{{ data.url }}</td>
+                            <td>{{ data.count }}</td>
+                            <td>
+                                <span class="badge rounded-pill text-bg-{{ status_dict[data.status].cls }}">
+                                    {{ status_dict[data.status].text }}
+                                </span>
+                            </td>
+                            <td class="text-secondary">{{ data.user_id }}</td>
+                            <td class="fw-semibold text-dark">{{ data.name }}</td>
+                            <td class="text-secondary">{{ roles_dict[data.role] }}</td>
+                            <td>
+                                <a href="/order/delete?order_id={{ data.id }}"
+                                    class="btn btn-sm btn-danger"
+                                    onclick="return confirm('确认删除该订单吗?')">
+                                    删除
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+{% endblock %}
