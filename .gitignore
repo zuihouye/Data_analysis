@@ -5,5 +5,12 @@
 __pycache__/
 *.py[cod]
 *.so
+.pytest_cache/
+.pytest_tmp/
 .venv/
 venv/
+
+# 环境变量（含密码,不提交github）
+.env
+.env.*
+!.env.example

@@ -1,0 +1,13 @@
+# 运行依赖
+# 用法: pip install -r requirements.txt
+#
+# 注意: 不要直接提交 `pip freeze` 的输出 —— conda 环境里的包会带
+# `@ file:///C:/...` 这样的本地绝对路径，换台机器就装不上。
+Flask==3.1.3
+pandas==3.0.6
+SQLAlchemy==2.1.4
+PyMySQL==1.2.3
+python-dotenv==1.2.4
+
+# 测试依赖
+pytest==9.1.1

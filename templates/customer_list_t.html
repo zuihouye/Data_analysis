@@ -1,57 +1,52 @@
 {% extends 'layout_t.html' %}
 
 {% block body %}
-	<!-- 使用卡片统一包裹，加上阴影和圆角 -->
     <div class="card shadow-sm border-0 rounded-3">
 
-        <!-- 卡片头部：放置操作按钮 -->
         <div class="card-header bg-white border-bottom pt-3 pb-3 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 fw-bold text-dark">订单列表</h5>
-            <a class="btn btn-success px-3 rounded-2" href="/order/create">
-                <i class="bi bi-plus-circle me-1"></i>添加订单
-            </a>
+            <h5 class="mb-0 fw-bold text-dark">客户列表</h5>
+            <div class="d-flex align-items-center gap-2">
+                <label class="text-secondary small mb-0">每页：</label>
+                <select class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;">
+                    <option value="10">10</option>
+                    <option value="20" selected>20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
         </div>
 
-        <!-- 卡片主体：放置表格。table-responsive 保证小屏幕下表格可横向滚动 -->
         <div class="card-body p-0">
             <div class="table-responsive">
-                <!-- 去掉 table-bordered，加上 align-middle 让内容垂直居中，mb-0 去除底部多余间距 -->
-                <table class="table table-hover align-middle mb-0">
+                <table class="table table-hover align-middle mb-0" id="dataTable">
                     <thead class="table-light text-secondary">
                         <tr>
-                            <!-- 加一些列宽控制，让表格布局更合理 -->
-                            <th class="ps-4" style="width: 80px;">ID</th>
-                            <th>URL</th>
-                            <th style="width: 100px;">数量</th>
-                            <th style="width: 120px;">状态</th>
-                            <th style="width: 100px;">用户ID</th>
-                            <th style="width: 120px;">用户名称</th>
-                            <th style="width: 120px;">用户角色</th>
-                            <th style="width: 120px;">操作</th>
+                            <th class="ps-4" style="width: 180px;">客户ID</th>
+                            <th>所在地区</th>
+                            <th style="width: 140px;">操作</th>
                         </tr>
                     </thead>
-
-                    <!-- 注意：tbody 必须写在 for 循环外面！ -->
-                    <tbody>
-                        {% for data in datalist %}
+                    <tbody id="tableBody">
+                        {% for customer in datalist %}
                         <tr>
-                            <td class="ps-4 text-secondary fw-medium">{{ data.id }}</td>
-                            <td class="text-primary">{{ data.url }}</td>
-                            <td>{{ data.count }}</td>
+                            <td class="ps-4 text-secondary fw-medium">{{ customer.customer_id }}</td>
+                            <td class="fw-semibold text-dark">{{ customer.region }}</td>
                             <td>
-                                <span class="badge rounded-pill text-bg-{{ status_dict[data.status].cls }}">
-                                    {{ status_dict[data.status].text }}
-                                </span>
-                            </td>
-                            <td class="text-secondary">{{ data.user_id }}</td>
-                            <td class="fw-semibold text-dark">{{ data.name }}</td>
-                            <td class="text-secondary">{{ roles_dict[data.role] }}</td>
-                            <td>
-                                <a href="/order/delete?order_id={{ data.id }}"
-                                    class="btn btn-sm btn-danger"
-                                    onclick="return confirm('确认删除该订单吗?')">
-                                    删除
+                                <a href="/customer/update?customer_id={{ customer.customer_id }}"
+                                   class="btn btn-sm btn-outline-primary me-1">
+                                    <i class="bi bi-pencil"></i>
                                 </a>
+                                <a href="/customer/delete?customer_id={{ customer.customer_id }}"
+                                   class="btn btn-sm btn-danger"
+                                   onclick="return confirm('确认删除该客户吗?')">
+                                    <i class="bi bi-trash"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr id="emptyRow">
+                            <td colspan="3" class="text-center text-secondary py-5">
+                                <i class="bi bi-people fs-2 d-block mb-2"></i>暂无客户数据
                             </td>
                         </tr>
                         {% endfor %}
@@ -60,5 +55,79 @@
             </div>
         </div>
 
+        <div class="card-footer bg-white border-top d-flex justify-content-between align-items-center px-3 py-2" id="paginationBar">
+            <span class="text-secondary small" id="pageInfo"></span>
+            <nav><ul class="pagination pagination-sm mb-0" id="pagination"></ul></nav>
+        </div>
+
     </div>
+
+<script>
+(function () {
+    const rows = Array.from(document.querySelectorAll('#tableBody tr:not(#emptyRow)'));
+    const pageInfo = document.getElementById('pageInfo');
+    const pagination = document.getElementById('pagination');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const paginationBar = document.getElementById('paginationBar');
+    let currentPage = 1;
+
+    function pageSize() { return parseInt(pageSizeSelect.value); }
+
+    function render(page) {
+        currentPage = page;
+        const size = pageSize();
+        const total = rows.length;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        currentPage = Math.min(currentPage, totalPages);
+        const start = (currentPage - 1) * size;
+        const end = start + size;
+
+        rows.forEach((r, i) => r.style.display = (i >= start && i < end) ? '' : 'none');
+        pageInfo.textContent = total === 0 ? '' : `第 ${start + 1}–${Math.min(end, total)} 条，共 ${total} 条`;
+        paginationBar.style.display = total === 0 ? 'none' : '';
+
+        pagination.innerHTML = '';
+        const maxBtn = 7;
+        let pages = [];
+        if (totalPages <= maxBtn) {
+            for (let i = 1; i <= totalPages; i++) pages.push(i);
+        } else {
+            pages = [1];
+            let lo = Math.max(2, currentPage - 2), hi = Math.min(totalPages - 1, currentPage + 2);
+            if (lo > 2) pages.push('...');
+            for (let i = lo; i <= hi; i++) pages.push(i);
+            if (hi < totalPages - 1) pages.push('...');
+            pages.push(totalPages);
+        }
+
+        const prevLi = document.createElement('li');
+        prevLi.className = 'page-item' + (currentPage === 1 ? ' disabled' : '');
+        prevLi.innerHTML = `<a class="page-link" href="#">«</a>`;
+        prevLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage > 1) render(currentPage - 1); });
+        pagination.appendChild(prevLi);
+
+        pages.forEach(p => {
+            const li = document.createElement('li');
+            if (p === '...') {
+                li.className = 'page-item disabled';
+                li.innerHTML = `<span class="page-link">…</span>`;
+            } else {
+                li.className = 'page-item' + (p === currentPage ? ' active' : '');
+                li.innerHTML = `<a class="page-link" href="#">${p}</a>`;
+                li.querySelector('a').addEventListener('click', e => { e.preventDefault(); render(p); });
+            }
+            pagination.appendChild(li);
+        });
+
+        const nextLi = document.createElement('li');
+        nextLi.className = 'page-item' + (currentPage === totalPages ? ' disabled' : '');
+        nextLi.innerHTML = `<a class="page-link" href="#">»</a>`;
+        nextLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage < totalPages) render(currentPage + 1); });
+        pagination.appendChild(nextLi);
+    }
+
+    pageSizeSelect.addEventListener('change', () => render(1));
+    render(1);
+})();
+</script>
 {% endblock %}

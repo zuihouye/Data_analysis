@@ -1,22 +1,37 @@
-from sqlalchemy.engine import result
+import logging
 
-from utils import db
-from flask import Blueprint,request,jsonify
+from flask import Blueprint, jsonify
+
+from utils import loader
+from utils.quality import DataQualityError
+
+logger = logging.getLogger(__name__)
 
 ci_blue = Blueprint('ci_blue', __name__)
 
-@ci_blue.route('/clear_input')
+
+# TODO(安全): 这是个破坏性操作（清空三张表重灌），必须改成 methods=['POST']
+#  + @login_required + CSRF 校验。目前仍是 GET，配在导航栏下拉里，
+#  浏览器预取 / 爬虫 / 手滑都会触发。改 POST 时要同步改 templates/layout_t.html。
+@ci_blue.route('/clear_input', methods=['POST'])
 def clear_input():
-    # 1. 调用数据库导入和清洗函数
-    df = db.process_and_import()
+    try:
+        df, report = loader.process_and_import()
+    except DataQualityError as exc:
+        logger.warning('数据质量不达标，已中止导入: %s', exc)
+        return jsonify({
+            'status': 'error',
+            'message': f'数据质量不达标，已中止导入：{exc}',
+        }), 400
 
-    if df.empty:
-        return jsonify({'status':'error','message': 'No data'})
+    # 日期转成字符串再序列化，否则 Flask 会输出 RFC 822 格式（Wed, 01 Jan 2025 ...）
+    preview = df.head(20).copy()
+    preview['order_date'] = preview['order_date'].dt.strftime('%Y-%m-%d')
 
-    result_data = df.head(20).to_dict(orient='records')
     return jsonify({
-        "status": "success",
-        "message": "数据加载成功！",
-        "total_rows": len(df),
-        "data_preview": result_data
+        'status': 'success',
+        'message': '数据加载成功！',
+        'total_rows': len(df),
+        'quality_report': report,
+        'data_preview': preview.to_dict(orient='records'),
     })

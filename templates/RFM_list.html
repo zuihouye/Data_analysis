@@ -1,0 +1,232 @@
+{% extends 'layout_t.html' %}
+
+{% block body %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold text-dark mb-0">RFM 客户分析</h5>
+    <div class="d-flex gap-2 align-items-center">
+        <form class="d-flex gap-2 align-items-center" method="get" action="/ge_rfm">
+            <label class="text-secondary small mb-0">年份筛选：</label>
+            <select class="form-select form-select-sm" name="year" style="width: 100px;" onchange="this.form.submit()">
+                <option value="">全部</option>
+                {% for y in years %}
+                <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        <label class="text-secondary small mb-0 ms-2">每页：</label>
+        <select class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+        </select>
+    </div>
+</div>
+
+<!-- 统计卡片行 -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 bg-primary bg-opacity-10 p-3">
+                    <i class="bi bi-people-fill fs-4 text-primary"></i>
+                </div>
+                <div>
+                    <div class="text-secondary small">客户总数</div>
+                    <div class="fw-bold fs-5">{{ datalist | length }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 bg-success bg-opacity-10 p-3">
+                    <i class="bi bi-cash-stack fs-4 text-success"></i>
+                </div>
+                <div>
+                    <div class="text-secondary small">平均消费金额</div>
+                    <div class="fw-bold fs-5">
+                        ¥ {% if datalist %}{{ "%.0f"|format(datalist | map(attribute='m') | list | sum / datalist | length) }}{% else %}0{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 bg-warning bg-opacity-10 p-3">
+                    <i class="bi bi-clock-history fs-4 text-warning"></i>
+                </div>
+                <div>
+                    <div class="text-secondary small">平均回购间隔</div>
+                    <div class="fw-bold fs-5">
+                        {% if datalist %}{{ "%.0f"|format(datalist | map(attribute='r') | list | sum / datalist | length) }}{% else %}0{% endif %} 天
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 bg-info bg-opacity-10 p-3">
+                    <i class="bi bi-bag-check-fill fs-4 text-info"></i>
+                </div>
+                <div>
+                    <div class="text-secondary small">平均购买次数</div>
+                    <div class="fw-bold fs-5">
+                        {% if datalist %}{{ "%.1f"|format(datalist | map(attribute='f') | list | sum / datalist | length) }}{% else %}0{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据表格 -->
+<div class="card shadow-sm border-0 rounded-3">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" id="dataTable">
+                <thead class="table-light text-secondary">
+                    <tr>
+                        <th class="ps-4" style="width: 160px;">客户ID</th>
+                        <th style="width: 80px;">年份</th>
+                        <th style="width: 110px;">R 最近购买(天)</th>
+                        <th style="width: 110px;">F 购买数量</th>
+                        <th style="width: 130px;">M 消费金额</th>
+                        <th style="width: 80px;">R 评级</th>
+                        <th style="width: 80px;">F 评级</th>
+                        <th style="width: 80px;">M 评级</th>
+                        <th style="width: 100px;">RFM 分组</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    {% for row in datalist %}
+                    <tr>
+                        <td class="ps-4 text-secondary fw-medium">{{ row.customer_id }}</td>
+                        <td>{{ row.year }}</td>
+                        <td>{{ row.r }}</td>
+                        <td>{{ row.f }}</td>
+                        <td class="text-success fw-semibold">¥ {{ "%.2f"|format(row.m) }}</td>
+                        <td>
+                            <span class="badge rounded-pill
+                                {% if row.r_leval == '3' %}text-bg-success
+                                {% elif row.r_leval == '2' %}text-bg-warning
+                                {% else %}text-bg-danger{% endif %}">
+                                {{ row.r_leval }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge rounded-pill
+                                {% if row.f_leval == '3' %}text-bg-success
+                                {% elif row.f_leval == '2' %}text-bg-warning
+                                {% else %}text-bg-danger{% endif %}">
+                                {{ row.f_leval }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge rounded-pill
+                                {% if row.m_leval == '3' %}text-bg-success
+                                {% elif row.m_leval == '2' %}text-bg-warning
+                                {% else %}text-bg-danger{% endif %}">
+                                {{ row.m_leval }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge rounded-pill text-bg-dark fw-bold">{{ row.rfm_group }}</span>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr id="emptyRow">
+                        <td colspan="9" class="text-center text-secondary py-5">
+                            <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>暂无 RFM 数据，请先<a href="/clear_input">导入数据</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <!-- 分页栏 -->
+    <div class="card-footer bg-white border-top d-flex justify-content-between align-items-center px-3 py-2" id="paginationBar">
+        <span class="text-secondary small" id="pageInfo"></span>
+        <nav>
+            <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+        </nav>
+    </div>
+</div>
+
+<script>
+(function () {
+    const rows = Array.from(document.querySelectorAll('#tableBody tr:not(#emptyRow)'));
+    const pageInfo = document.getElementById('pageInfo');
+    const pagination = document.getElementById('pagination');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const paginationBar = document.getElementById('paginationBar');
+    let currentPage = 1;
+
+    function pageSize() { return parseInt(pageSizeSelect.value); }
+
+    function render(page) {
+        currentPage = page;
+        const size = pageSize();
+        const total = rows.length;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        currentPage = Math.min(currentPage, totalPages);
+        const start = (currentPage - 1) * size;
+        const end = start + size;
+
+        rows.forEach((r, i) => r.style.display = (i >= start && i < end) ? '' : 'none');
+
+        pageInfo.textContent = total === 0 ? '' : `第 ${start + 1}–${Math.min(end, total)} 条，共 ${total} 条`;
+        paginationBar.style.display = total === 0 ? 'none' : '';
+
+        // 构建分页按钮
+        pagination.innerHTML = '';
+        const maxBtn = 7;
+        let pages = [];
+        if (totalPages <= maxBtn) {
+            for (let i = 1; i <= totalPages; i++) pages.push(i);
+        } else {
+            pages = [1];
+            let lo = Math.max(2, currentPage - 2), hi = Math.min(totalPages - 1, currentPage + 2);
+            if (lo > 2) pages.push('...');
+            for (let i = lo; i <= hi; i++) pages.push(i);
+            if (hi < totalPages - 1) pages.push('...');
+            pages.push(totalPages);
+        }
+
+        const prevLi = document.createElement('li');
+        prevLi.className = 'page-item' + (currentPage === 1 ? ' disabled' : '');
+        prevLi.innerHTML = `<a class="page-link" href="#">«</a>`;
+        prevLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage > 1) render(currentPage - 1); });
+        pagination.appendChild(prevLi);
+
+        pages.forEach(p => {
+            const li = document.createElement('li');
+            if (p === '...') {
+                li.className = 'page-item disabled';
+                li.innerHTML = `<span class="page-link">…</span>`;
+            } else {
+                li.className = 'page-item' + (p === currentPage ? ' active' : '');
+                li.innerHTML = `<a class="page-link" href="#">${p}</a>`;
+                li.querySelector('a').addEventListener('click', e => { e.preventDefault(); render(p); });
+            }
+            pagination.appendChild(li);
+        });
+
+        const nextLi = document.createElement('li');
+        nextLi.className = 'page-item' + (currentPage === totalPages ? ' disabled' : '');
+        nextLi.innerHTML = `<a class="page-link" href="#">»</a>`;
+        nextLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage < totalPages) render(currentPage + 1); });
+        pagination.appendChild(nextLi);
+    }
+
+    pageSizeSelect.addEventListener('change', () => render(1));
+    render(1);
+})();
+</script>
+{% endblock %}

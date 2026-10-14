@@ -22,22 +22,23 @@
 
       <!-- 左侧菜单组 -->
       <ul class="navbar-nav me-auto mb-2 mb-lg-0 gap-lg-3">
-        <!-- 去掉 text-secondary，让 Bootstrap 默认的深色导航样式生效（浅灰文字，悬浮变白） -->
         <li class="nav-item">
-          <a class="nav-link" href="#">用户管理</a>
+          <a class="nav-link" href="/customer/list">客户管理</a>
         </li>
         <li class="nav-item">
           <a class="nav-link" href="/order/list">订单管理</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/product/list">产品管理</a>
+        </li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            更多操作
+            数据分析
           </a>
           <ul class="dropdown-menu border-0 shadow rounded-3 mt-2">
-            <li><a class="dropdown-item" href="#">Action</a></li>
-            <li><a class="dropdown-item" href="#">Another action</a></li>
+            <li><a class="dropdown-item" href="/ge_rfm"><i class="bi bi-graph-up me-2 text-primary"></i>RFM 分析</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="#">Something else here</a></li>
+            <li><a class="dropdown-item" href="/clear_input"><i class="bi bi-upload me-2 text-success"></i>导入数据</a></li>
           </ul>
         </li>
       </ul>
@@ -48,13 +49,13 @@
           <!-- 修复BUG：去掉了 text-dark，改为 text-white 和 hover 效果 -->
           <a class="nav-link dropdown-toggle text-white d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="bi bi-person-circle fs-5 me-2 text-white-50"></i>
-            {{ get_user_info().name }}
+            {{ 用户名 }}
           </a>
           <ul class="dropdown-menu dropdown-menu-end border-0 shadow rounded-3 mt-2">
-            <li><a class="dropdown-item" href="#">电话:{{ get_user_info().mobile }}</a></li>
-            <li><a class="dropdown-item" href="#">用户ID:{{ get_user_info().user_id }}</a></li>
+            <li><a class="dropdown-item" href="#">电话:{{ 电话 }}</a></li>
+            <li><a class="dropdown-item" href="#">用户ID:{{ id }}</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="#">用户身份:{{ roles_dict[get_user_info().role] }}</a></li>
+            <li><a class="dropdown-item" href="#">用户身份:{{ 身份 }}</a></li>
           </ul>
         </li>
       </ul>
