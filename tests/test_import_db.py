@@ -47,6 +47,14 @@ def _ddl(engine, table):
         return conn.execute(text(f'SHOW CREATE TABLE {table}')).fetchone()[1]
 
 
+def _users(engine):
+    """账号表快照，用于断言导入没有动它"""
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(text(
+            'SELECT phone, username, password_hash, role FROM users '
+            'ORDER BY id')).fetchall()]
+
+
 # ---------------------------------------------------------------- fixtures
 
 @pytest.fixture(scope='module')
@@ -186,6 +194,60 @@ def test_process_and_import_end_to_end(test_engine):
     assert report['dropped'] == 1, 'V2 数据里有 1 条业务级重复'
 
 
+# ------------------------------------------------------- 账号表与客户表解耦
+
+def test_customers_has_no_login_columns(test_engine, loaded):
+    """
+    客户表不该装登录凭据 —— 账号在独立的 users 表里。
+
+    历史：role / password_hash 一度被加在 customers 上，结果 /clear_input
+    （全量重灌，先 DELETE FROM customers）每跑一次就把所有人的密码和角色
+    冲成默认值。这条测试守着那次拆分。
+    """
+    ddl = _ddl(test_engine, 'customers')
+    assert 'password_hash' not in ddl
+    assert 'role' not in ddl
+    assert 'cus_status' in ddl, '客户自己的状态列应该留着'
+
+
+def test_users_phone_is_unique(test_engine, loaded):
+    """手机号是登录标识，必须唯一；否则同一手机号能注册两次，登录时拿到哪条看运气"""
+    with test_engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO users (phone, username, password_hash) "
+            "VALUES ('13900000001', 'bob', 'h1')"))
+
+    with pytest.raises(IntegrityError):
+        with test_engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO users (phone, username, password_hash) "
+                "VALUES ('13900000001', 'bob2', 'h2')"))
+
+
+def test_import_does_not_touch_users(test_engine, prepared, loaded):
+    """
+    核心保证：导入客户数据【完全不影响】账号表。
+
+    两者的数据生命周期互斥 —— customers 来自 CSV 是全量快照，
+    users 来自用户手输是增量数据。这条测试把"两张表解耦"锁死：
+    一旦有人把 users 挂上 customers 的外键（导入会报 1451），
+    或把凭据挪回 customers（导入会冲掉密码），这里就会红。
+    """
+    with test_engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO users (phone, username, password_hash, role) "
+            "VALUES ('13800000000', 'alice', '$2b$12$fakehash', 2)"))
+
+    before = _users(test_engine)
+    assert ('13800000000', 'alice', '$2b$12$fakehash', 2) in before
+
+    with test_engine.begin() as conn:
+        write_to_db(prepared, conn)          # ← 点一次"导入数据"
+
+    assert _users(test_engine) == before, \
+        '导入改动了账号表 —— users 和 customers 没有真正解耦'
+
+
 # ------------------------------------------------------------------ 路由层
 
 def test_clear_input_route_returns_serializable_json(test_engine, loaded, monkeypatch):
@@ -206,7 +268,7 @@ def test_clear_input_route_returns_serializable_json(test_engine, loaded, monkey
     app = create_app()
     app.config['TESTING'] = True
 
-    resp = app.test_client().get('/clear_input')
+    resp = app.test_client().post('/clear_input')
     assert resp.status_code == 200
 
     body = resp.get_json()
@@ -237,7 +299,7 @@ def test_clear_input_route_reports_quality_failure(test_engine, loaded, monkeypa
     app.config['TESTING'] = True
 
     before = _count(test_engine, 'orders')
-    resp = app.test_client().get('/clear_input')
+    resp = app.test_client().post('/clear_input')
 
     assert resp.status_code == 400
     body = resp.get_json()

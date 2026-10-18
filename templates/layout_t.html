@@ -38,7 +38,12 @@
           <ul class="dropdown-menu border-0 shadow rounded-3 mt-2">
             <li><a class="dropdown-item" href="/ge_rfm"><i class="bi bi-graph-up me-2 text-primary"></i>RFM 分析</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="/clear_input"><i class="bi bi-upload me-2 text-success"></i>导入数据</a></li>
+            <li><form method="post" action="/clear_input" class="m-0">
+                    <button type="submit" class="dropdown-item">
+                        <i class="bi bi-upload me-2 text-success"></i>导入数据
+                    </button>
+                </form>
+            </li>
           </ul>
         </li>
       </ul>

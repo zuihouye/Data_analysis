@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 ci_blue = Blueprint('ci_blue', __name__)
 
 
-# TODO(安全): 这是个破坏性操作（清空三张表重灌），必须改成 methods=['POST']
+# TODO(安全):
 #  + @login_required + CSRF 校验。目前仍是 GET，配在导航栏下拉里，
 #  浏览器预取 / 爬虫 / 手滑都会触发。改 POST 时要同步改 templates/layout_t.html。
 @ci_blue.route('/clear_input', methods=['POST'])

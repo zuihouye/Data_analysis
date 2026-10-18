@@ -1,15 +1,22 @@
 {% extends 'layout_t.html' %}
 
 {% block body %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h5 class="fw-bold text-dark mb-0">RFM 客户分析</h5>
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h5 class="fw-bold text-dark mb-0">RFM 客户分析</h5>
+        <div class="text-secondary small mt-1">
+            {{ meta.window_label }}
+            {% if meta.start %}· 区间 {{ meta.range }}{% else %}· {{ meta.range }}{% endif %}
+            {% if meta.snapshot %}· 基准日 {{ meta.snapshot }}{% endif %}
+            · 窗口内 {{ meta.orders }} 笔订单 / {{ meta.customers }} 位客户
+        </div>
+    </div>
     <div class="d-flex gap-2 align-items-center">
         <form class="d-flex gap-2 align-items-center" method="get" action="/ge_rfm">
-            <label class="text-secondary small mb-0">年份筛选：</label>
-            <select class="form-select form-select-sm" name="year" style="width: 100px;" onchange="this.form.submit()">
-                <option value="">全部</option>
-                {% for y in years %}
-                <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+            <label class="text-secondary small mb-0">回看窗口：</label>
+            <select class="form-select form-select-sm" name="window" style="width: 130px;" onchange="this.form.submit()">
+                {% for w in windows %}
+                <option value="{{ w.key }}" {% if w.key == selected_window %}selected{% endif %}>{{ w.label }}</option>
                 {% endfor %}
             </select>
         </form>
@@ -32,7 +39,7 @@
                     <i class="bi bi-people-fill fs-4 text-primary"></i>
                 </div>
                 <div>
-                    <div class="text-secondary small">客户总数</div>
+                    <div class="text-secondary small">窗口中活跃客户</div>
                     <div class="fw-bold fs-5">{{ datalist | length }}</div>
                 </div>
             </div>
@@ -45,9 +52,9 @@
                     <i class="bi bi-cash-stack fs-4 text-success"></i>
                 </div>
                 <div>
-                    <div class="text-secondary small">平均消费金额</div>
+                    <div class="text-secondary small">人均消费金额</div>
                     <div class="fw-bold fs-5">
-                        ¥ {% if datalist %}{{ "%.0f"|format(datalist | map(attribute='m') | list | sum / datalist | length) }}{% else %}0{% endif %}
+                        ¥ {% if datalist %}{{ "%.1f"|format(datalist | map(attribute='m') | list | sum / datalist | length / 10000) }}{% else %}0{% endif %} 万
                     </div>
                 </div>
             </div>
@@ -60,7 +67,7 @@
                     <i class="bi bi-clock-history fs-4 text-warning"></i>
                 </div>
                 <div>
-                    <div class="text-secondary small">平均回购间隔</div>
+                    <div class="text-secondary small">平均 R（距基准日天数）</div>
                     <div class="fw-bold fs-5">
                         {% if datalist %}{{ "%.0f"|format(datalist | map(attribute='r') | list | sum / datalist | length) }}{% else %}0{% endif %} 天
                     </div>
@@ -75,7 +82,7 @@
                     <i class="bi bi-bag-check-fill fs-4 text-info"></i>
                 </div>
                 <div>
-                    <div class="text-secondary small">平均购买次数</div>
+                    <div class="text-secondary small">人均消费频次</div>
                     <div class="fw-bold fs-5">
                         {% if datalist %}{{ "%.1f"|format(datalist | map(attribute='f') | list | sum / datalist | length) }}{% else %}0{% endif %}
                     </div>
@@ -93,9 +100,8 @@
                 <thead class="table-light text-secondary">
                     <tr>
                         <th class="ps-4" style="width: 160px;">客户ID</th>
-                        <th style="width: 80px;">年份</th>
-                        <th style="width: 110px;">R 最近购买(天)</th>
-                        <th style="width: 110px;">F 购买数量</th>
+                        <th style="width: 110px;">R 距基准日(天)</th>
+                        <th style="width: 110px;">F 消费频次</th>
                         <th style="width: 130px;">M 消费金额</th>
                         <th style="width: 80px;">R 评级</th>
                         <th style="width: 80px;">F 评级</th>
@@ -107,10 +113,9 @@
                     {% for row in datalist %}
                     <tr>
                         <td class="ps-4 text-secondary fw-medium">{{ row.customer_id }}</td>
-                        <td>{{ row.year }}</td>
                         <td>{{ row.r }}</td>
                         <td>{{ row.f }}</td>
-                        <td class="text-success fw-semibold">¥ {{ "%.2f"|format(row.m) }}</td>
+                        <td class="text-success fw-semibold">¥ {{ "%.1f"|format(row.m / 10000) }} 万</td>
                         <td>
                             <span class="badge rounded-pill
                                 {% if row.r_leval == '3' %}text-bg-success
@@ -141,8 +146,8 @@
                     </tr>
                     {% else %}
                     <tr id="emptyRow">
-                        <td colspan="9" class="text-center text-secondary py-5">
-                            <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>暂无 RFM 数据，请先<a href="/clear_input">导入数据</a>
+                        <td colspan="8" class="text-center text-secondary py-5">
+                            <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>暂无 RFM 数据，请先从右上角「数据分析 → 导入数据」导入
                         </td>
                     </tr>
                     {% endfor %}
