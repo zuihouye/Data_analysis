@@ -4,16 +4,17 @@ from flask import Blueprint, jsonify
 
 from utils import loader
 from utils.quality import DataQualityError
-
+from .auth import admin_required
 logger = logging.getLogger(__name__)
 
 ci_blue = Blueprint('ci_blue', __name__)
 
 
-# TODO(安全):
-#  + @login_required + CSRF 校验。目前仍是 GET，配在导航栏下拉里，
-#  浏览器预取 / 爬虫 / 手滑都会触发。改 POST 时要同步改 templates/layout_t.html。
+# 安全层已补齐：
+#   POST（不是 GET）+ CSRF（before_app_request 统一校验）+ 管理员权限
+# 剩下的"前端二次确认"见路线图 2.1，属于体验优化，不是安全边界。
 @ci_blue.route('/clear_input', methods=['POST'])
+@admin_required
 def clear_input():
     try:
         df, report = loader.process_and_import()

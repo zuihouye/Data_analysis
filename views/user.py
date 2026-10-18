@@ -2,10 +2,13 @@ from flask import Blueprint, render_template
 from utils import db
 import pandas as pd
 
+from .auth import login_required
+
 user_blue = Blueprint('user', __name__)
 
 
 @user_blue.route('/customer/list')
+@login_required
 def customer_list():
     df = pd.read_sql('SELECT customer_id, region FROM customers ORDER BY customer_id', con=db.engine)
     datalist = df.to_dict(orient='records')

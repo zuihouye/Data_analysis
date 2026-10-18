@@ -1,11 +1,12 @@
 from flask import render_template, Blueprint
 import pandas as pd
 from utils import db
-
+from .auth import login_required
 order_blue = Blueprint('order', __name__)
 
 
 @order_blue.route('/order/list')
+@login_required
 def order_list():
     sql = '''
         SELECT o.transaction_id, o.order_date, o.customer_id,
@@ -21,6 +22,7 @@ def order_list():
 
 
 @order_blue.route('/product/list')
+@login_required
 def product_list():
     df = pd.read_sql('SELECT product_id, product_name, product_category, ppu FROM products ORDER BY product_id', con=db.engine)
     datalist = df.to_dict(orient='records')

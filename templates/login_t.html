@@ -43,14 +43,8 @@
         </div>
         <div class="card-body">
             <form method="post">
-                <div class="mb-3">
-                    <label class="form-label fw-semibold text-secondary small">身份选择</label>
-                    <select class="form-select" name="role">
-                        <option value="">选择身份</option>
-                        <option value="1">普通成员</option>
-                        <option value="2">管理员</option>
-                    </select>
-                </div>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                 <div class="mb-3">
                     <label class="form-label fw-semibold text-secondary small">手机号</label>
                     <div class="input-group">

@@ -5,7 +5,7 @@ RFM 的计算口径在 utils/rfm.py，数据的清洗与导入在 utils/quality�
 """
 import pandas as pd
 from flask import Blueprint, render_template, request
-
+from .auth import login_required
 from utils import db
 from utils.rfm import DEFAULT_WINDOW, WINDOWS, rfm_table, window_options
 
@@ -13,6 +13,7 @@ ge_RFM_blue = Blueprint('ge_RFM', __name__)
 
 
 @ge_RFM_blue.route('/ge_rfm')
+@login_required
 def ge_rfm():
     # 两次读取必须收进同一个事务：传 engine 时每次调用各自开事务，
     # 导入的 COMMIT 落在两次读取之间会让这个页面变成"半旧半新"

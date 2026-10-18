@@ -18,6 +18,7 @@ from utils import loader
 from utils.loader import process_and_import, write_to_db
 from utils.quality import DataQualityError, clean, validate
 
+CSRF_TOKEN = 'test-csrf-token'
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_SQL = ROOT / 'schema.sql'
 CSV = ROOT / 'static' / 'archive' / 'raw_rfm_sales_transactions_(V2).csv'
@@ -268,7 +269,16 @@ def test_clear_input_route_returns_serializable_json(test_engine, loaded, monkey
     app = create_app()
     app.config['TESTING'] = True
 
-    resp = app.test_client().post('/clear_input')
+    with app.test_client() as client:
+        # 模拟"管理员已登录 + 带合法 CSRF token"
+        with client.session_transaction() as sess:
+            sess['user_id'] = 1
+            sess['username'] = 'tester'
+            sess['phone'] = '13000000000'
+            sess['role'] = 2
+            sess['_csrf_token'] = CSRF_TOKEN
+
+        resp = client.post('/clear_input', data={'csrf_token': CSRF_TOKEN})
     assert resp.status_code == 200
 
     body = resp.get_json()
@@ -299,10 +309,143 @@ def test_clear_input_route_reports_quality_failure(test_engine, loaded, monkeypa
     app.config['TESTING'] = True
 
     before = _count(test_engine, 'orders')
-    resp = app.test_client().post('/clear_input')
+
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 1
+            sess['role'] = 2
+            sess['_csrf_token'] = CSRF_TOKEN
+        resp = client.post('/clear_input', data={'csrf_token': CSRF_TOKEN})
 
     assert resp.status_code == 400
     body = resp.get_json()
     assert body['status'] == 'error'
     assert '数据质量不达标' in body['message']
     assert _count(test_engine, 'orders') == before, '被拒绝的导入不该改动数据库'
+
+# ------------------------------------------------------- 安全层（P0-2 新增）
+
+def test_write_without_csrf_token_is_rejected(test_engine, monkeypatch):
+    """没有 CSRF token 的写请求，必须在进视图之前就被挡掉"""
+    monkeypatch.setattr(dbmod, 'engine', test_engine)
+
+    from views import create_app
+    app = create_app()
+    app.config['TESTING'] = True
+
+    resp = app.test_client().post('/clear_input')
+    assert resp.status_code == 400
+    assert 'CSRF' in resp.get_data(as_text=True)
+
+
+def test_anonymous_write_goes_to_login(test_engine, monkeypatch):
+    """token 合法但没登录 -> 302 跳登录页（而不是 400）"""
+    monkeypatch.setattr(dbmod, 'engine', test_engine)
+
+    from views import create_app
+    app = create_app()
+    app.config['TESTING'] = True
+
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['_csrf_token'] = CSRF_TOKEN
+        resp = client.post('/clear_input', data={'csrf_token': CSRF_TOKEN})
+
+    assert resp.status_code == 302
+    assert '/login' in resp.headers['Location']
+
+
+def test_non_admin_write_is_forbidden(test_engine, monkeypatch):
+    """普通成员（role=1）不能触发导入 —— 认证解决"你是谁"，授权解决"你能干什么" """
+    monkeypatch.setattr(dbmod, 'engine', test_engine)
+
+    from views import create_app
+    app = create_app()
+    app.config['TESTING'] = True
+
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 2
+            sess['role'] = 1
+            sess['_csrf_token'] = CSRF_TOKEN
+        resp = client.post('/clear_input', data={'csrf_token': CSRF_TOKEN})
+
+    assert resp.status_code == 403
+
+
+def test_login_ignores_client_supplied_role(test_engine, monkeypatch):
+    """客户端谎报 role=2 也没用：角色只认数据库里的值"""
+    monkeypatch.setattr(dbmod, 'engine', test_engine)
+
+    from sqlalchemy import text as sql_text
+    from werkzeug.security import generate_password_hash
+
+    with test_engine.begin() as conn:
+        conn.execute(sql_text(
+            'INSERT INTO users (phone, username, password_hash, role) '
+            "VALUES ('13700000001', '普通成员小李', :h, 1)"),
+            {'h': generate_password_hash('secret123')})
+
+    from views import create_app
+    app = create_app()
+    app.config['TESTING'] = True
+
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['_csrf_token'] = CSRF_TOKEN
+        resp = client.post('/login', data={
+            'mobile': '13700000001',
+            'pwd': 'secret123',
+            'role': '2',                 # ← 谎报管理员
+            'csrf_token': CSRF_TOKEN,
+        })
+        assert resp.status_code == 302   # 登录成功
+        with client.session_transaction() as sess:
+            assert sess['role'] == 1     # 但角色仍是库里的 1
+def test_login_then_import_end_to_end(test_engine, loaded, monkeypatch):
+    """
+    端到端：打开登录页 → 登录 → 打开业务页 → 导入成功。
+
+    这条测试顺带锁住一个行为：登录会**轮换 CSRF token**（防会话固定攻击），
+    所以登录之前渲染出来的旧表单会失效。浏览器登录后必然重新渲染页面、
+    拿到新 token，正常流程无感 —— 但如果你把 token 写死在代码里，这里就会红。
+    """
+    monkeypatch.setattr(dbmod, 'engine', test_engine)
+
+    from sqlalchemy import text as sql_text
+    from werkzeug.security import generate_password_hash
+
+    with test_engine.begin() as conn:
+        conn.execute(sql_text(
+            'INSERT INTO users (phone, username, password_hash, role) '
+            "VALUES ('13700000002', '管理员老张', :h, 2)"),
+            {'h': generate_password_hash('admin123')})
+
+    from views import create_app
+    app = create_app()
+    app.config['TESTING'] = True
+
+    with app.test_client() as client:
+        # 1. 打开登录页：页面渲染时会把 token 写进 session 和 HTML
+        with client.session_transaction() as sess:
+            sess['_csrf_token'] = CSRF_TOKEN
+
+        # 2. 提交登录
+        resp = client.post('/login', data={'mobile': '13700000002',
+                                           'pwd': 'admin123',
+                                           'csrf_token': CSRF_TOKEN})
+        assert resp.status_code == 302
+
+        # 3. 跟随跳转打开业务页（等价于浏览器重新渲染，layout_t.html 会重新出 token）
+        resp = client.get('/customer/list')
+        assert resp.status_code == 200, '登录后业务页应该能打开（顺带验证 layout 模板没写坏）'
+
+        # 4. token 确实换过了
+        with client.session_transaction() as sess:
+            new_token = sess['_csrf_token']
+        assert new_token != CSRF_TOKEN
+
+        # 5. 用新 token 触发管理员操作
+        resp = client.post('/clear_input', data={'csrf_token': new_token})
+        assert resp.status_code == 200
+        assert resp.get_json()['status'] == 'success'
