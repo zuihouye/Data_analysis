@@ -124,5 +124,5 @@ def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE):
 
     meta['customers'] = int(len(rfm))
     meta['range'] = (f'{meta["start"]} ~ {meta["snapshot"]}'
-                     if meta['start'] else f'截至 {meta["snapshot"]}')
+                     if meta.get('start') else f'截至 {meta["snapshot"]}')
     return rfm[columns], meta

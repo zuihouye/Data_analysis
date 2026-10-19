@@ -25,6 +25,29 @@ class Config:
     SESSION_COOKIE_SECURE = False  # 本地是 http；上线换 https 后必须改成 True
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
 
+    # ---------------------------------------------------------- Redis
+    # 只给支付锁 / 幂等用。用独立 db 索引，跟业务缓存分开：
+    # 万一有人对 db0 执行 FLUSHDB，不会把正在生效的支付锁一起冲掉。
+    REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+    REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
+    REDIS_DB = int(os.getenv('REDIS_DB', '1'))
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
+
+    # 锁参数集中放这里，测试可以覆盖\
+    PAY_LOCK_TTL_MS = int(os.getenv('PAY_LOCK_TTL_MS', '10000'))
+    PAY_LOCK_WAIT_MS = int(os.getenv('PAY_LOCK_WAIT_MS', '3000'))
+    PAY_IDEMPOTENT_TTL = int(os.getenv('PAY_IDEMPOTENT_TTL', '86400'))
+
+    @classmethod
+    def redis_kwargs(cls):
+        return dict(host=cls.REDIS_HOST, port=cls.REDIS_PORT,
+                    db=cls.REDIS_DB, password=cls.REDIS_PASSWORD or None,
+                    decode_responses=True,  # 必须 True，否则 Lua 返回 bytes，token 比较会全不相等
+                    socket_connect_timeout=1,  # 支付链路里 Redis 挂了要"快速失败"，不能挂住请求
+                    socket_timeout=1,
+                    health_check_interval=30
+                    )
+
     # 仅在测试里允许关掉；生产必须是 True
     CSRF_ENABLED = True
 
