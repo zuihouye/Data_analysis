@@ -1,34 +1,71 @@
-{% extends 'layout_t.html' %}
+{% extends 'base.html' %}
+
+{% block title %}修改客户地区 · xx订单平台{% endblock %}
+
+{% block pagehead %}
+<div class="pagehead" data-od-id="customer-form-head">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t"><h1>修改客户地区</h1></div>
+      <p class="pagehead__meta">
+        客户 {{ customer.customer_id }} · {{ customer.phone or '未注册账号' }}
+      </p>
+      <p class="pagehead__legend">
+        客户 ID 与状态不可在此修改（注销有专门入口）· 地区用于分组展示与运营筛选
+      </p>
+    </div>
+    <div class="pagehead__r">
+      <a class="btn btn--ghost" href="{{ url_for('user.customer_list') }}">返回客户列表</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block body %}
-<div class="row justify-content-center">
-    <div class="col-lg-6">
-        <div class="card shadow-sm border-0 rounded-3">
-            <div class="card-header bg-white border-bottom pt-3 pb-3">
-                <h5 class="mb-0 fw-bold text-dark">修改客户地区</h5>
-            </div>
-            <div class="card-body">
-                <dl class="row text-secondary small mb-4">
-                    <dt class="col-sm-4">客户ID</dt>
-                    <dd class="col-sm-8">{{ customer.customer_id }}</dd>
-                    <dt class="col-sm-4">登录账号</dt>
-                    <dd class="col-sm-8">{{ customer.phone or '未注册' }}</dd>
-                </dl>
-                <form method="post"
-                      action="{{ url_for('user.customer_update', customer_id=customer.customer_id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">所在地区</label>
-                        <input type="text" class="form-control" name="region" maxlength="64"
-                               value="{{ customer.region }}" required>
-                    </div>
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-dark px-4">保存</button>
-                        <a href="{{ url_for('user.customer_list') }}" class="btn btn-outline-secondary">返回</a>
-                    </div>
-                </form>
-            </div>
-        </div>
+<div class="formgrid">
+  <section class="card" data-od-id="customer-form">
+    <div class="card__hd">
+      <h2>地区信息</h2>
+      <span class="card__note">保存后立即生效</span>
     </div>
+    <div class="card__bd">
+      <form method="post" action="{{ url_for('user.customer_update', customer_id=customer.customer_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="formrow">
+          <div class="formfield formfield--full">
+            <label for="region">所在地区<span class="req">*</span></label>
+            <input class="input" type="text" id="region" name="region" maxlength="64"
+                   value="{{ customer.region }}" required autocomplete="off">
+            <div class="hint">最长 64 字。建议保持与导入数据一致的城市 / 地区写法，便于 RFM 分组统计。</div>
+          </div>
+        </div>
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">保存</button>
+          <a class="btn btn--ghost" href="{{ url_for('user.customer_list') }}">取消</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <aside class="card" data-od-id="customer-profile">
+    <div class="card__hd"><h2>客户档案</h2><span class="card__note">只读</span></div>
+    <div class="card__bd">
+      <dl class="kvlist">
+        <div><dt>客户 ID</dt><dd class="mono">{{ customer.customer_id }}</dd></div>
+        <div><dt>登录账号</dt><dd class="mono">{{ customer.phone or '未注册' }}</dd></div>
+        <div>
+          <dt>客户状态</dt>
+          <dd>
+            <span class="badge {{ 'badge--ok' if customer.cus_status == 1 else 'badge--neutral' }}">
+              {{ '正常' if customer.cus_status == 1 else '已注销' }}
+            </span>
+          </dd>
+        </div>
+      </dl>
+      <p class="hint" style="margin-top:14px">
+        注销客户会同时停用其登录账号，历史订单与 RFM 记录仍保留；恢复状态需要管理员在数据库侧处理。
+      </p>
+    </div>
+  </aside>
 </div>
 {% endblock %}

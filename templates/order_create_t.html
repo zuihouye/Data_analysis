@@ -1,75 +1,116 @@
-{% extends 'layout_t.html' %}
+{% extends 'base.html' %}
+
+{% block title %}确认下单 · xx订单平台{% endblock %}
+
+{% block pagehead %}
+<div class="pagehead" data-od-id="order-create-head">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t"><h1>确认下单</h1></div>
+      <p class="pagehead__meta">
+        {% if products %}
+        共 {{ products|length }} 个在售商品 · 下单后由员工确认线下收款
+        {% else %}
+        暂无可购买商品
+        {% endif %}
+      </p>
+      <p class="pagehead__legend">
+        金额按固定汇率折合人民币展示 · 下单时锁定单价快照 · 员工确认收款后才计入 RFM
+      </p>
+    </div>
+    <div class="pagehead__r">
+      <a class="btn btn--ghost" href="{{ url_for('order.product_list') }}">返回商品中心</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block body %}
-<div class="row justify-content-center">
-    <div class="col-lg-6">
-        <div class="card shadow-sm border-0 rounded-3">
-            <div class="card-header bg-white border-bottom pt-3 pb-3">
-                <h5 class="mb-0 fw-bold text-dark">确认下单</h5>
-            </div>
-            <div class="card-body">
-                {% if products %}
-                <form method="post" action="{{ url_for('order.order_create') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="form_token" value="{{ form_token }}">
-
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">商品</label>
-                        <select class="form-select" name="product_id" id="productSelect" required>
-                            {% for product in products %}
-                            <option value="{{ product.product_id }}"
-                                    data-ppu="{{ product.ppu }}"
-                                    {% if product.product_id == preselect %}selected{% endif %}>
-                                {{ product.product_name }}（{{ product.product_category or '未分类' }}）
-                                —— ¥ {{ "%.2f"|format(product.ppu) }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">数量</label>
-                        <input type="number" class="form-control" name="quantity" id="quantity"
-                               min="1" max="999" value="1" required>
-                    </div>
-                    <div class="alert alert-light border small mb-4">
-                        应付金额：<span class="fw-bold text-danger fs-5" id="previewAmount">—</span>
-                        <div class="text-secondary mt-1">
-                            下单后请与客服确认线下付款方式；员工确认收款后订单变为「已支付」。
-                        </div>
-                    </div>
-
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-dark px-4">提交订单</button>
-                        <a href="{{ url_for('order.product_list') }}" class="btn btn-outline-secondary">返回商品</a>
-                    </div>
-                </form>
-                {% else %}
-                <div class="text-center text-secondary py-5">
-                    <i class="bi bi-inbox fs-2 d-block mb-2"></i>
-                    暂无可购买商品，请等员工上架后再来。
-                </div>
-                {% endif %}
-            </div>
-        </div>
+{% if products %}
+<div class="formgrid">
+  <section class="card" data-od-id="order-create-form">
+    <div class="card__hd">
+      <h2>选择商品与数量</h2>
+      <span class="card__note">提交后生成待付款订单</span>
     </div>
+    <div class="card__bd">
+      <form method="post" action="{{ url_for('order.order_create') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form_token" value="{{ form_token }}">
+
+        <div class="formrow">
+          <div class="formfield formfield--full">
+            <label for="productSelect">商品<span class="req">*</span></label>
+            <select class="select" name="product_id" id="productSelect" required>
+              {% for product in products %}
+              <option value="{{ product.product_id }}"
+                      data-ppu="{{ product.ppu }}"
+                      {% if product.product_id == preselect %}selected{% endif %}>
+                {{ product.product_name }}（{{ product.product_category or '未分类' }}）— ¥ {{ product.ppu|cny }}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="hint">价格已折合人民币展示；下单时按下单快照单价结算，之后调价不影响本单。</div>
+          </div>
+
+          <div class="formfield">
+            <label for="quantity">数量<span class="req">*</span></label>
+            <input class="input input--mono" type="number" name="quantity" id="quantity"
+                   min="1" max="999" value="1" required>
+            <div class="hint">1 ~ 999 件</div>
+          </div>
+
+          <div class="formfield formfield--full">
+            <div class="amount" data-amount-calc data-rate="{{ MMK_PER_CNY }}"
+                 data-ppu-source="#productSelect">
+              <div class="amount__row"><span>单价（折合人民币）</span><b data-unit-price>—</b></div>
+              <div class="amount__row amount__total"><span>应付金额</span><b data-amount-out>—</b></div>
+              <p class="amount__note">
+                金额 = 单价 × 数量。下单后请与客服确认线下付款方式；员工确认收款后订单变为「已支付」。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">提交订单</button>
+          <a class="btn btn--ghost" href="{{ url_for('order.product_list') }}">取消</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <aside class="card" data-od-id="order-create-steps">
+    <div class="card__hd"><h2>下单流程</h2><span class="card__note">线下收款</span></div>
+    <div class="card__bd">
+      <ol class="steps">
+        <li>选择商品与数量，提交后生成<b>待付款</b>订单。</li>
+        <li>联系客服确认付款方式并完成线下付款。</li>
+        <li>员工在订单管理里点「确认收款」，订单变为<b>已支付</b>。</li>
+        <li>已支付订单才会计入 RFM 客户分析。</li>
+      </ol>
+      <p class="hint" style="margin-top:14px">
+        订单在待付款状态下可以改数量或取消；已支付后不能自行修改。
+      </p>
+    </div>
+  </aside>
 </div>
+{% else %}
+<section class="card">
+  <div class="empty">
+    <svg class="empty__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 8.5 12 3l9 5.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>
+      <path d="M3 8.5 12 14l9-5.5"/><path d="M12 14v7"/>
+    </svg>
+    <strong>暂无可购买商品</strong>
+    <span>等员工上架商品后再来下单吧。</span>
+    <a class="btn btn--ghost" style="margin-top:10px" href="{{ url_for('order.product_list') }}">返回商品中心</a>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
 
-<script>
-(function () {
-    const select = document.getElementById('productSelect');
-    const quantity = document.getElementById('quantity');
-    const preview = document.getElementById('previewAmount');
-    if (!select || !quantity || !preview) return;
-
-    function update() {
-        const opt = select.options[select.selectedIndex];
-        const ppu = parseFloat(opt && opt.dataset.ppu ? opt.dataset.ppu : '0');
-        const qty = parseInt(quantity.value || '0', 10);
-        preview.textContent = '¥ ' + (ppu * Math.max(qty, 0)).toFixed(2);
-    }
-    select.addEventListener('change', update);
-    quantity.addEventListener('input', update);
-    update();
-})();
-</script>
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/form.js') }}"></script>
 {% endblock %}

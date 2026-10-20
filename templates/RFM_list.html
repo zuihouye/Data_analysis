@@ -1,282 +1,206 @@
-{% extends 'layout_t.html' %}
+{% extends 'base.html' %}
+
+{% block title %}RFM 客户分析 · xx订单平台{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/rfm.css') }}">
+{% endblock %}
+
+{% block account_extra %}
+<button type="button" role="menuitem" data-acc="print">导出 PDF 报告</button>
+<button type="button" role="menuitem" data-acc="reset">重置筛选与排序</button>
+<button type="button" role="menuitem" data-acc="gloss">展开数据口径说明</button>
+{% endblock %}
+
+{% block pagehead %}
+<div class="pagehead" data-od-id="report-head">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t">
+        <h1 data-od-id="report-title">RFM 客户分析</h1>
+      </div>
+      <p class="pagehead__meta" data-od-id="report-meta">
+        {{ meta.window_label }} · 截至 {{ meta.snapshot or '—' }} · 基准日 {{ meta.snapshot or '—' }}
+        · 窗口内 {{ "{:,}".format(meta.orders) }} 笔已支付订单，覆盖 {{ "{:,}".format(meta.customers) }} 位客户
+      </p>
+      <p class="pagehead__legend">
+        窗口 {{ meta.start or '最早' }} – {{ meta.snapshot or '—' }}
+        · 口径：窗口内至少 1 笔已支付订单的用户
+        · R 最近一次购买 · F 周期内购买频次 · M 周期内消费金额
+        · 金额由 MMK 折算人民币
+      </p>
+    </div>
+    <div class="pagehead__r no-print">
+      <span class="field">
+        <span class="field__label">回看窗口</span>
+        <span class="seg" role="group" aria-label="回看窗口">
+          {% for w in windows %}
+          <a class="seg__btn" href="{{ url_for('ge_RFM.ge_rfm', window=w.key) }}"
+             aria-pressed="{{ 'true' if w.key == selected_window else 'false' }}">{{ w.label }}</a>
+          {% endfor %}
+        </span>
+      </span>
+      <button class="btn btn--primary" id="exportBtn" type="button" data-od-id="export-report">导出 PDF</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block body %}
-<div class="d-flex justify-content-between align-items-start mb-3">
+{% if report.orders == 0 %}
+<div class="flash flash--warning">
+  <b>当前统计范围内没有已支付订单</b>
+  {% if orders_total > 0 %}（订单表共 {{ "{:,}".format(orders_total) }} 笔，但状态都不是「已支付」）。
+  {% else %}（订单表为空）。{% endif %}
+  历史数据导入时会统一按已支付立账，如果你是刚升级到「只统计已支付」的口径，
+  {% if current_user.role == 2 %}<a href="{{ url_for('ci_blue.import_page') }}">到「导入数据」重新导入一次</a>{% else %}请联系管理员重新导入一次{% endif %}；
+  网页下单要等员工确认收款后才会计入。
+</div>
+{% endif %}
+<section class="kpis" id="kpiStrip" data-od-id="kpi-strip" aria-label="核心指标"></section>
+
+<div class="filterbar no-print" id="filterBar" data-od-id="filter-bar" hidden>
+  <span class="filterbar__chip" id="filterChip"></span>
+  <span class="filterbar__txt">全页图表与明细已同步高亮该分群</span>
+  <button class="btn btn--ghost" id="clearFilter" type="button">清除筛选</button>
+</div>
+
+<section class="grid-hero">
+  <div class="card" data-od-id="segment-matrix">
+    <div class="card__hd">
+      <h2>分群价值矩阵 · R × F</h2>
+      <span class="card__note">气泡面积 = 该分群收入贡献 · 色系 = 消费层级</span>
+    </div>
+    <div class="card__bd" id="matrixHost"></div>
+    <div class="legendline" id="matrixLegend"></div>
+    <div class="card__bd" style="padding-top:10px">
+      <span class="card__note">坐标轴为分群均值；虚线为该周期全体客户的高/低分界（R 33 分位、F 67 分位）。</span>
+    </div>
+  </div>
+
+  <div class="card" data-od-id="segment-revenue-ranking">
+    <div class="card__hd">
+      <h2>分群贡献排行</h2>
+      <span class="card__note">点击任一行筛选</span>
+    </div>
+    <div class="card__bd" style="padding:10px 8px 14px">
+      <div class="rank__hd"><span>客户占比（灰）／收入占比（彩）</span><span>占比 %</span></div>
+      <div id="rankHost"></div>
+    </div>
+  </div>
+</section>
+
+<section class="card" data-od-id="distribution-panel">
+  <div class="card__hd">
+    <h2>R / F / M 分布与三分位切点</h2>
+    <span class="card__note">深色柱为「高」区间（R 越近、F/M 越大）</span>
+  </div>
+  <div class="grid-dist" id="distHost"></div>
+</section>
+
+<section class="card" data-od-id="segment-detail-table">
+  <div class="card__hd">
+    <h2>分群明细与运营动作</h2>
+    <span class="card__note">点击表头排序 · 点击行筛选</span>
+  </div>
+  <div class="tblwrap" id="tableHost"></div>
+  <div class="card__cap">
+    <span>分群为相对口径，人数环比含整体分布漂移</span>
+    <span>8 分群 = R / F / M 三维各折高/低（3 分 = 高）</span>
+  </div>
+</section>
+
+<section class="card detail-card" data-od-id="customer-detail-table">
+  <div class="card__hd">
+    <h2>客户明细</h2>
+    <span class="card__note">与上方分群筛选联动；M 为人民币万元</span>
+    <span class="pager__size">每页
+      <select class="select" id="detailSize" aria-label="每页条数">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
+  </div>
+  <div class="tblwrap">
+    <table class="tbl" id="detailTable">
+      <thead>
+        <tr>
+          <th>客户 ID</th>
+          <th>地区</th>
+          <th class="num">R（天）</th>
+          <th class="num">F（次）</th>
+          <th class="num">M（万元）</th>
+          <th>R 评级</th>
+          <th>F 评级</th>
+          <th>M 评级</th>
+          <th class="num">RFM 分组</th>
+          <th>客户分群</th>
+        </tr>
+      </thead>
+      <tbody id="detailBody"></tbody>
+    </table>
+  </div>
+  <div class="pager" id="detailPager">
+    <span class="pager__info" id="detailInfo"></span>
+    <div class="pager__nav" id="detailNav"></div>
+  </div>
+</section>
+
+<section class="grid-act" id="actHost" data-od-id="action-plan"></section>
+
+<details class="gloss" data-od-id="methodology">
+  <summary>数据口径与打分规则</summary>
+  <div class="gloss__bd">
     <div>
-        <h5 class="fw-bold text-dark mb-0">RFM 客户分析</h5>
-        <div class="text-secondary small mt-1">
-            {{ meta.window_label }}
-            {% if meta.start %}· 区间 {{ meta.range }}{% else %}· {{ meta.range }}{% endif %}
-            {% if meta.snapshot %}· 基准日 {{ meta.snapshot }}{% endif %}
-            · 窗口内 {{ meta.orders }} 笔订单 / {{ meta.customers }} 位客户
-        </div>
+      <h4>统计口径</h4>
+      <ul>
+        <li>有效客户 = 统计周期内至少有 1 笔已支付订单的用户；同一账号多设备下单合并计。</li>
+        <li>R = 该客户最近一次购买距统计截止日的天数；F = 周期内已支付订单数；M = 周期内累计实付金额。</li>
+        <li>金额口径：数据集原始币种为缅甸缅币（MMK），数据库保留原值，页面按固定汇率折算成人民币展示——
+          1 CNY ≈ {{ report.fx.mmk_per_cny }} MMK、1 USD ≈ {{ report.fx.mmk_per_usd }} MMK（即 1 USD ≈ {{ report.fx.cny_per_usd }} CNY），
+          再以「万元」为单位显示；汇率是展示口径、不随行情更新（KPI 的美元等价金额按同一汇率换算）。
+          换算只影响显示，占比、分群、排序与环比均按原始金额计算。</li>
+        <li>环比 = 与紧邻的等长上一周期对比；上一周期在其自身客群内用同一套三分位规则重算，避免跨期口径漂移。全部窗口没有上一周期，环比显示「—」。</li>
+        <li>核心客户占比 = R、F、M 三个维度全部为「高」（即三维各自进入前 1/3）的用户，也就是「重要价值客户」，其占有效客户的比例是客户质量的先行指标。</li>
+      </ul>
     </div>
-    <div class="d-flex gap-2 align-items-center">
-        <form class="d-flex gap-2 align-items-center" method="get" action="/ge_rfm">
-            <label class="text-secondary small mb-0">回看窗口：</label>
-            <select class="form-select form-select-sm" name="window" style="width: 130px;" onchange="this.form.submit()">
-                {% for w in windows %}
-                <option value="{{ w.key }}" {% if w.key == selected_window %}selected{% endif %}>{{ w.label }}</option>
-                {% endfor %}
-            </select>
-        </form>
-        <label class="text-secondary small mb-0 ms-2">每页：</label>
-        <select class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;">
-            <option value="10">10</option>
-            <option value="20" selected>20</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-        </select>
+    <div>
+      <h4>打分与分群规则</h4>
+      <ul>
+        <li>R / F / M 各自按本周期全体有效客户做<b>三分位</b>切分：按位次排序后每档各取 1/3 人数（同分客户按稳定顺位切分，结果可复现），各打 1–3 分——R 越小分越高，F、M 越大分越高。</li>
+        <li>每维的三档再折成两档：得 3 分 = 「高」，得 1–2 分 = 「低」。即 R 前 1/3 记「近」、F 前 1/3 记「高频」、M 前 1/3 记「高价值」。</li>
+        <li>三个维度的高低组合落回经典 8 分类：近 · 高频 · 高价值 = 重要价值客户；其余按同一规则对应，分群表里的 R·F·M 标记为完整对照。</li>
+        <li>订单状态：只有已支付（order_status = 2）的订单计入；网页下单要等员工确认收款后才算数，取消订单不计。</li>
+      </ul>
     </div>
+    <div class="wide">
+      <h4>数据来源声明</h4>
+      <p>客户与订单数据来自 Kaggle 公开数据集
+        <a href="https://www.kaggle.com/datasets/charmmyaeaung/raw-sales-dataset-for-rfm-customer-segmentation"
+           target="_blank" rel="noopener">Raw Sales Dataset for RFM Customer Segmentation</a>，
+        经 <span class="mono">utils/loader.py</span> 导入并统一按「已支付」立账；统计截止日为数据内的最新订单日，
+        不是服务器当前日期。本页所有数字由后端按当前窗口实时计算，与页内脚本无关（脚本只负责渲染）。
+      </p>
+    </div>
+  </div>
+</details>
+
+<div class="foot">
+  <span>xx订单平台 · 数据分析 / RFM 客户分析 · 全部数值由后端按当前窗口实时计算</span>
+  <span class="mono">报告快照 {{ meta.snapshot or '—' }} · 引擎口径 v2 · 金额 CNY（MMK 折算）</span>
 </div>
 
-<!-- 统计卡片行 -->
-<div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm rounded-3 h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 bg-primary bg-opacity-10 p-3">
-                    <i class="bi bi-people-fill fs-4 text-primary"></i>
-                </div>
-                <div>
-                    <div class="text-secondary small">窗口中活跃客户</div>
-                    <div class="fw-bold fs-5">{{ datalist | length }}</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm rounded-3 h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 bg-success bg-opacity-10 p-3">
-                    <i class="bi bi-cash-stack fs-4 text-success"></i>
-                </div>
-                <div>
-                    <div class="text-secondary small">人均消费金额</div>
-                    <div class="fw-bold fs-5">
-                        ¥ {% if datalist %}{{ "%.1f"|format(datalist | map(attribute='m') | list | sum / datalist | length / 10000) }}{% else %}0{% endif %} 万
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm rounded-3 h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 bg-warning bg-opacity-10 p-3">
-                    <i class="bi bi-clock-history fs-4 text-warning"></i>
-                </div>
-                <div>
-                    <div class="text-secondary small">平均 R（距基准日天数）</div>
-                    <div class="fw-bold fs-5">
-                        {% if datalist %}{{ "%.0f"|format(datalist | map(attribute='r') | list | sum / datalist | length) }}{% else %}0{% endif %} 天
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm rounded-3 h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 bg-info bg-opacity-10 p-3">
-                    <i class="bi bi-bag-check-fill fs-4 text-info"></i>
-                </div>
-                <div>
-                    <div class="text-secondary small">人均消费频次</div>
-                    <div class="fw-bold fs-5">
-                        {% if datalist %}{{ "%.1f"|format(datalist | map(attribute='f') | list | sum / datalist | length) }}{% else %}0{% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+<noscript>
+  <div class="empty"><strong>需要启用 JavaScript</strong>
+    <span>图表与表格由页面脚本渲染，请允许 JavaScript 后刷新。</span></div>
+</noscript>
 
-<!-- 分群明细与运营动作：8 个经典分群（三档折两档：3=高，1/2=低） -->
-<div class="card shadow-sm border-0 rounded-3 mb-4">
-    <div class="card-header bg-white border-0 pt-3 pb-2">
-        <div class="fw-bold text-dark">分群明细与运营动作</div>
-        <div class="text-secondary small mt-1">
-            分群（R·F·M）：每一维的 3 档折成两档 —— 3 = 高，1/2 = 低，2×2×2 落回 8 个经典分群
-        </div>
-    </div>
-    <div class="table-responsive">
-        <table class="table align-middle mb-0">
-            <thead class="table-light text-secondary">
-                <tr>
-                    <th class="ps-4" style="width: 230px;">分群</th>
-                    <th style="width: 130px;">R · F · M</th>
-                    <th style="width: 110px;">人数</th>
-                    <th style="width: 90px;">占比</th>
-                    <th>运营动作</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for s in meta.segments %}
-                <tr{% if s.count == 0 %} class="text-secondary opacity-75"{% endif %}>
-                    <td class="ps-4 fw-semibold">
-                        <span class="d-inline-block rounded-1 bg-{{ s.color }} me-2"
-                              style="width: 10px; height: 10px;"></span>{{ s.name }}
-                    </td>
-                    <td>
-                        <span class="badge text-bg-{{ s.color }} me-1">R{{ s.r_band }}</span>
-                        <span class="badge text-bg-{{ s.color }} me-1">F{{ s.f_band }}</span>
-                        <span class="badge text-bg-{{ s.color }}">M{{ s.m_band }}</span>
-                    </td>
-                    <td>{{ s.count }}</td>
-                    <td>{{ "%.1f"|format(s.ratio) }}%</td>
-                    <td class="text-secondary small">{{ s.action }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+<script id="rfm-data" type="application/json">{{ report|tojson }}</script>
+<script id="rfm-detail" type="application/json">{{ detail|tojson }}</script>
+{% endblock %}
 
-<!-- 数据表格 -->
-<div class="card shadow-sm border-0 rounded-3">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0" id="dataTable">
-                <thead class="table-light text-secondary">
-                    <tr>
-                        <th class="ps-4" style="width: 160px;">客户ID</th>
-                        <th style="width: 110px;">R 距基准日(天)</th>
-                        <th style="width: 110px;">F 消费频次</th>
-                        <th style="width: 130px;">M 消费金额</th>
-                        <th style="width: 80px;">R 评级</th>
-                        <th style="width: 80px;">F 评级</th>
-                        <th style="width: 80px;">M 评级</th>
-                        <th style="width: 100px;">RFM 分组</th>
-                        <th style="width: 150px;">客户分群</th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody">
-                    {% for row in datalist %}
-                    <tr>
-                        <td class="ps-4 text-secondary fw-medium">{{ row.customer_id }}</td>
-                        <td>{{ row.r }}</td>
-                        <td>{{ row.f }}</td>
-                        <td class="text-success fw-semibold">¥ {{ "%.1f"|format(row.m / 10000) }} 万</td>
-                        <td>
-                            <span class="badge rounded-pill
-                                {% if row.r_leval == '3' %}text-bg-success
-                                {% elif row.r_leval == '2' %}text-bg-warning
-                                {% else %}text-bg-danger{% endif %}">
-                                {{ row.r_leval }}
-                            </span>
-                        </td>
-                        <td>
-                            <span class="badge rounded-pill
-                                {% if row.f_leval == '3' %}text-bg-success
-                                {% elif row.f_leval == '2' %}text-bg-warning
-                                {% else %}text-bg-danger{% endif %}">
-                                {{ row.f_leval }}
-                            </span>
-                        </td>
-                        <td>
-                            <span class="badge rounded-pill
-                                {% if row.m_leval == '3' %}text-bg-success
-                                {% elif row.m_leval == '2' %}text-bg-warning
-                                {% else %}text-bg-danger{% endif %}">
-                                {{ row.m_leval }}
-                            </span>
-                        </td>
-                        <td>
-                            <span class="badge rounded-pill text-bg-dark fw-bold">{{ row.rfm_group }}</span>
-                        </td>
-                        <td>
-                            <span class="badge rounded-pill text-bg-{{ row.segment_color }}">{{ row.segment }}</span>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr id="emptyRow">
-                        <td colspan="9" class="text-center text-secondary py-5">
-                            <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>暂无 RFM 数据，请先从右上角「数据分析 → 导入数据」导入
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    <!-- 分页栏 -->
-    <div class="card-footer bg-white border-top d-flex justify-content-between align-items-center px-3 py-2" id="paginationBar">
-        <span class="text-secondary small" id="pageInfo"></span>
-        <nav>
-            <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
-        </nav>
-    </div>
-</div>
-
-<script>
-(function () {
-    const rows = Array.from(document.querySelectorAll('#tableBody tr:not(#emptyRow)'));
-    const pageInfo = document.getElementById('pageInfo');
-    const pagination = document.getElementById('pagination');
-    const pageSizeSelect = document.getElementById('pageSizeSelect');
-    const paginationBar = document.getElementById('paginationBar');
-    let currentPage = 1;
-
-    function pageSize() { return parseInt(pageSizeSelect.value); }
-
-    function render(page) {
-        currentPage = page;
-        const size = pageSize();
-        const total = rows.length;
-        const totalPages = Math.max(1, Math.ceil(total / size));
-        currentPage = Math.min(currentPage, totalPages);
-        const start = (currentPage - 1) * size;
-        const end = start + size;
-
-        rows.forEach((r, i) => r.style.display = (i >= start && i < end) ? '' : 'none');
-
-        pageInfo.textContent = total === 0 ? '' : `第 ${start + 1}–${Math.min(end, total)} 条，共 ${total} 条`;
-        paginationBar.style.display = total === 0 ? 'none' : '';
-
-        // 构建分页按钮
-        pagination.innerHTML = '';
-        const maxBtn = 7;
-        let pages = [];
-        if (totalPages <= maxBtn) {
-            for (let i = 1; i <= totalPages; i++) pages.push(i);
-        } else {
-            pages = [1];
-            let lo = Math.max(2, currentPage - 2), hi = Math.min(totalPages - 1, currentPage + 2);
-            if (lo > 2) pages.push('...');
-            for (let i = lo; i <= hi; i++) pages.push(i);
-            if (hi < totalPages - 1) pages.push('...');
-            pages.push(totalPages);
-        }
-
-        const prevLi = document.createElement('li');
-        prevLi.className = 'page-item' + (currentPage === 1 ? ' disabled' : '');
-        prevLi.innerHTML = `<a class="page-link" href="#">«</a>`;
-        prevLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage > 1) render(currentPage - 1); });
-        pagination.appendChild(prevLi);
-
-        pages.forEach(p => {
-            const li = document.createElement('li');
-            if (p === '...') {
-                li.className = 'page-item disabled';
-                li.innerHTML = `<span class="page-link">…</span>`;
-            } else {
-                li.className = 'page-item' + (p === currentPage ? ' active' : '');
-                li.innerHTML = `<a class="page-link" href="#">${p}</a>`;
-                li.querySelector('a').addEventListener('click', e => { e.preventDefault(); render(p); });
-            }
-            pagination.appendChild(li);
-        });
-
-        const nextLi = document.createElement('li');
-        nextLi.className = 'page-item' + (currentPage === totalPages ? ' disabled' : '');
-        nextLi.innerHTML = `<a class="page-link" href="#">»</a>`;
-        nextLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage < totalPages) render(currentPage + 1); });
-        pagination.appendChild(nextLi);
-    }
-
-    pageSizeSelect.addEventListener('change', () => render(1));
-    render(1);
-})();
-</script>
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/rfm.js') }}"></script>
 {% endblock %}

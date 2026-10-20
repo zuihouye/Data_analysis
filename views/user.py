@@ -105,5 +105,33 @@ def customer_delete():
     if result.rowcount == 0:
         flash('客户不存在或已注销', 'warning')
     else:
-        flash('客户已注销（订单保留；如需恢复请联系管理员改状态）', 'success')
+        flash('客户已注销（订单保留；需要时可在列表中「恢复」）', 'success')
+    return redirect(url_for('user.customer_list'))
+
+
+@user_blue.route('/customer/restore', methods=['POST'])
+@admin_required
+def customer_restore():
+    """恢复客户 = 反向软删除：cus_status 2→1，同时把被停用的账号重新启用。
+
+    为什么要有这个入口：注销是软删除，状态存在库里，运维一定会遇到"注销错了"。
+    只处理已注销的客户（cus_status=2），重复点恢复不会误改正常客户；
+    账号只在 is_active=2（停用）时改回 1，无账号/本来就启用的客户不受影响。
+    """
+    customer_id = (request.form.get('customer_id') or '').strip()
+    with db.engine.begin() as conn:
+        result = conn.execute(text(
+            'UPDATE customers SET cus_status = 1 '
+            'WHERE customer_id = :cid AND cus_status = 2'),
+            {'cid': customer_id})
+        if result.rowcount:
+            conn.execute(text(
+                'UPDATE users SET is_active = 1 '
+                'WHERE customer_id = :cid AND is_active = 2'),
+                {'cid': customer_id})
+
+    if result.rowcount == 0:
+        flash('客户不存在，或不是已注销状态', 'warning')
+    else:
+        flash('客户已恢复，绑定的登录账号重新启用', 'success')
     return redirect(url_for('user.customer_list'))

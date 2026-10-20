@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ code }} · {{ title }} · xx订单平台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="errpage">
+  <div class="auth__top">
+    <b>xx订单平台</b><span>{{ title }}</span>
+  </div>
+
+  <main class="errpage__main">
+    <div class="errpage__card">
+      <div class="errpage__code">{{ code }}</div>
+      <h1>{{ title }}</h1>
+      <p class="errpage__msg">{{ message }}</p>
+      <div class="errpage__path">{{ method }} {{ path }}</div>
+      <div class="errpage__actions">
+        <a class="btn btn--primary" href="{{ url_for('hello_world') }}">返回首页</a>
+        <a class="btn btn--ghost" href="javascript:history.back()">返回上一页</a>
+      </div>
+      {% if code == 403 %}
+      <p class="errpage__msg" style="margin-top:18px;font-size:var(--fs-xs)">
+        权限按角色（客户 / 普通成员 / 管理员）在服务端校验；如果确认是误拦截，请联系管理员处理。
+      </p>
+      {% elif code == 500 %}
+      <p class="errpage__msg" style="margin-top:18px;font-size:var(--fs-xs)">
+        异常已写入服务端日志；可以先刷新重试，若持续出现请把操作步骤反馈给开发者。
+      </p>
+      {% endif %}
+    </div>
+  </main>
+</body>
+</html>

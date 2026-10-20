@@ -1,162 +1,125 @@
-{% extends 'layout_t.html' %}
+{% extends 'base.html' %}
+
+{% block title %}客户管理 · xx订单平台{% endblock %}
+
+{% block pagehead %}
+{% set ns = namespace(registered=0) %}
+{% for c in datalist %}{% if c.phone %}{% set ns.registered = ns.registered + 1 %}{% endif %}{% endfor %}
+<div class="pagehead" data-od-id="customer-head">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t"><h1>客户管理</h1></div>
+      <p class="pagehead__meta">
+        共 {{ "{:,}".format(datalist|length) }} 位客户
+        · {{ "{:,}".format(ns.registered) }} 位已注册账号
+      </p>
+      <p class="pagehead__legend">
+        客户主数据来自导入 · 注销只停用账号，历史订单与 RFM 记录保留 · 注销后可随时恢复
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block body %}
-    <div class="card shadow-sm border-0 rounded-3">
+<section class="card" data-list
+         data-list-body="listBody" data-list-size="listSize"
+         data-list-info="listInfo" data-list-nav="listNav"
+         data-od-id="customer-table">
+  <div class="card__hd">
+    <h2>客户列表 <span class="card__note">{{ "{:,}".format(datalist|length) }} 位</span></h2>
+    {% if datalist %}
+    <span class="pager__size">
+      <label for="listSize">每页</label>
+      <select class="select" id="listSize">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
+    {% endif %}
+  </div>
 
-        <div class="card-header bg-white border-bottom pt-3 pb-3 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 fw-bold text-dark">客户列表</h5>
-            <div class="d-flex align-items-center gap-2">
-                <label class="text-secondary small mb-0">每页：</label>
-                <select class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;">
-                    <option value="10">10</option>
-                    <option value="20" selected>20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                </select>
+  {% if datalist %}
+  <div class="tblwrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>客户 ID</th>
+          <th>所在地区</th>
+          <th>登录账号</th>
+          <th>账号状态</th>
+          <th>客户状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="listBody">
+        {% for c in datalist %}
+        <tr>
+          <td class="num" data-l="客户 ID">{{ c.customer_id }}</td>
+          <td data-l="所在地区">{{ c.region or '—' }}</td>
+          <td class="num" data-l="登录账号">{{ c.phone or '未注册' }}</td>
+          <td data-l="账号状态">
+            {% if c.is_active == 1 %}
+            <span class="badge badge--ok">启用</span>
+            {% elif c.is_active == 2 %}
+            <span class="badge badge--neutral">停用</span>
+            {% else %}
+            <span class="badge badge--neutral">无账号</span>
+            {% endif %}
+          </td>
+          <td data-l="客户状态">
+            {% if c.cus_status == 1 %}
+            <span class="badge badge--ok">正常</span>
+            {% else %}
+            <span class="badge badge--neutral">已注销</span>
+            {% endif %}
+          </td>
+          <td data-l="操作">
+            <div class="actions">
+              <a class="btn btn--ghost btn--sm"
+                 href="{{ url_for('user.customer_update', customer_id=c.customer_id) }}">改地区</a>
+              {% if is_admin and c.cus_status == 1 %}
+              <form method="post" action="{{ url_for('user.customer_delete') }}"
+                    onsubmit="return confirm('确认注销该客户吗？订单会保留，账号将被停用');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="customer_id" value="{{ c.customer_id }}">
+                <button class="btn btn--danger btn--sm" type="submit">注销</button>
+              </form>
+              {% elif is_admin and c.cus_status == 2 %}
+              <form method="post" action="{{ url_for('user.customer_restore') }}"
+                    onsubmit="return confirm('确认恢复该客户吗？绑定的登录账号会重新启用');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="customer_id" value="{{ c.customer_id }}">
+                <button class="btn btn--ghost btn--sm" type="submit">恢复</button>
+              </form>
+              {% endif %}
             </div>
-        </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pager">
+    <span class="pager__info" id="listInfo"></span>
+    <div class="pager__nav" id="listNav" role="navigation" aria-label="分页"></div>
+  </div>
+  {% else %}
+  <div class="empty">
+    <svg class="empty__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="9.5" cy="8.5" r="3.5"/><path d="M3 19c0-3.3 2.9-5.2 6.5-5.2s6.5 1.9 6.5 5.2"/>
+      <path d="M16.4 6.2a3.1 3.1 0 0 1 0 5.7"/><path d="M17.2 13.7c2.4.6 3.8 2.2 3.8 4.6"/>
+    </svg>
+    <strong>暂无客户数据</strong>
+    <span>导入客户主数据或等待客户注册后，这里会出现记录。</span>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
 
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0" id="dataTable">
-                    <thead class="table-light text-secondary">
-                        <tr>
-                            <th class="ps-4" style="width: 200px;">客户ID</th>
-                            <th>所在地区</th>
-                            <th style="width: 160px;">登录账号</th>
-                            <th style="width: 120px;">账号状态</th>
-                            <th style="width: 120px;">客户状态</th>
-                            <th style="width: 180px;">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody">
-                        {% for customer in datalist %}
-                        <tr>
-                            <td class="ps-4 text-secondary fw-medium">{{ customer.customer_id }}</td>
-                            <td class="fw-semibold text-dark">{{ customer.region }}</td>
-                            <td class="text-secondary">
-                                {% if customer.phone %}{{ customer.phone }}
-                                {% else %}<span class="text-muted">未注册</span>{% endif %}
-                            </td>
-                            <td>
-                                {% if customer.is_active == 1 %}
-                                <span class="badge text-bg-success">启用</span>
-                                {% elif customer.is_active == 2 %}
-                                <span class="badge text-bg-secondary">停用</span>
-                                {% else %}
-                                <span class="badge text-bg-light text-muted">无账号</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if customer.cus_status == 1 %}
-                                <span class="badge text-bg-success">正常</span>
-                                {% else %}
-                                <span class="badge text-bg-secondary">已注销</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <a href="/customer/update?customer_id={{ customer.customer_id }}"
-                                   class="btn btn-sm btn-outline-primary me-1" title="修改地区">
-                                    <i class="bi bi-pencil"></i>
-                                </a>
-                                {% if is_admin and customer.cus_status == 1 %}
-                                <form method="post" action="/customer/delete" class="d-inline">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <input type="hidden" name="customer_id" value="{{ customer.customer_id }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            onclick="return confirm('确认注销该客户吗？订单会保留，账号将被停用')"
-                                            title="注销客户">
-                                        <i class="bi bi-person-dash"></i> 注销
-                                    </button>
-                                </form>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr id="emptyRow">
-                            <td colspan="6" class="text-center text-secondary py-5">
-                                <i class="bi bi-people fs-2 d-block mb-2"></i>暂无客户数据
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card-footer bg-white border-top d-flex justify-content-between align-items-center px-3 py-2" id="paginationBar">
-            <span class="text-secondary small" id="pageInfo"></span>
-            <nav><ul class="pagination pagination-sm mb-0" id="pagination"></ul></nav>
-        </div>
-
-    </div>
-
-<script>
-(function () {
-    const rows = Array.from(document.querySelectorAll('#tableBody tr:not(#emptyRow)'));
-    const pageInfo = document.getElementById('pageInfo');
-    const pagination = document.getElementById('pagination');
-    const pageSizeSelect = document.getElementById('pageSizeSelect');
-    const paginationBar = document.getElementById('paginationBar');
-    let currentPage = 1;
-
-    function pageSize() { return parseInt(pageSizeSelect.value); }
-
-    function render(page) {
-        currentPage = page;
-        const size = pageSize();
-        const total = rows.length;
-        const totalPages = Math.max(1, Math.ceil(total / size));
-        currentPage = Math.min(currentPage, totalPages);
-        const start = (currentPage - 1) * size;
-        const end = start + size;
-
-        rows.forEach((r, i) => r.style.display = (i >= start && i < end) ? '' : 'none');
-        pageInfo.textContent = total === 0 ? '' : `第 ${start + 1}–${Math.min(end, total)} 条，共 ${total} 条`;
-        paginationBar.style.display = total === 0 ? 'none' : '';
-
-        pagination.innerHTML = '';
-        const maxBtn = 7;
-        let pages = [];
-        if (totalPages <= maxBtn) {
-            for (let i = 1; i <= totalPages; i++) pages.push(i);
-        } else {
-            pages = [1];
-            let lo = Math.max(2, currentPage - 2), hi = Math.min(totalPages - 1, currentPage + 2);
-            if (lo > 2) pages.push('...');
-            for (let i = lo; i <= hi; i++) pages.push(i);
-            if (hi < totalPages - 1) pages.push('...');
-            pages.push(totalPages);
-        }
-
-        const prevLi = document.createElement('li');
-        prevLi.className = 'page-item' + (currentPage === 1 ? ' disabled' : '');
-        prevLi.innerHTML = `<a class="page-link" href="#">«</a>`;
-        prevLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage > 1) render(currentPage - 1); });
-        pagination.appendChild(prevLi);
-
-        pages.forEach(p => {
-            const li = document.createElement('li');
-            if (p === '...') {
-                li.className = 'page-item disabled';
-                li.innerHTML = `<span class="page-link">…</span>`;
-            } else {
-                li.className = 'page-item' + (p === currentPage ? ' active' : '');
-                li.innerHTML = `<a class="page-link" href="#">${p}</a>`;
-                li.querySelector('a').addEventListener('click', e => { e.preventDefault(); render(p); });
-            }
-            pagination.appendChild(li);
-        });
-
-        const nextLi = document.createElement('li');
-        nextLi.className = 'page-item' + (currentPage === totalPages ? ' disabled' : '');
-        nextLi.innerHTML = `<a class="page-link" href="#">»</a>`;
-        nextLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage < totalPages) render(currentPage + 1); });
-        pagination.appendChild(nextLi);
-    }
-
-    pageSizeSelect.addEventListener('change', () => render(1));
-    render(1);
-})();
-</script>
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/list.js') }}"></script>
 {% endblock %}

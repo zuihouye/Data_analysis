@@ -1,37 +1,88 @@
-{% extends 'layout_t.html' %}
+{% extends 'base.html' %}
+
+{% block title %}修改订单数量 #{{ order.order_id }} · xx订单平台{% endblock %}
+
+{% block pagehead %}
+<div class="pagehead" data-od-id="order-form-head">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t"><h1>修改订单数量 <span class="mono">#{{ order.order_id }}</span></h1></div>
+      <p class="pagehead__meta">
+        流水号 {{ order.transaction_id }} · 客户 {{ order.customer_id }} · 商品 {{ order.product_id }}
+      </p>
+      <p class="pagehead__legend">
+        只有「待付款」订单可以改数量 · 金额按下单时的单价快照重算 · 改价不影响本单
+      </p>
+    </div>
+    <div class="pagehead__r">
+      <a class="btn btn--ghost" href="{{ url_for('order.order_list') }}">返回订单列表</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block body %}
-<div class="row justify-content-center">
-    <div class="col-lg-6">
-        <div class="card shadow-sm border-0 rounded-3">
-            <div class="card-header bg-white border-bottom pt-3 pb-3">
-                <h5 class="mb-0 fw-bold text-dark">修改订单数量 #{{ order.order_id }}</h5>
-            </div>
-            <div class="card-body">
-                <dl class="row text-secondary small mb-4">
-                    <dt class="col-sm-4">交易流水号</dt>
-                    <dd class="col-sm-8">{{ order.transaction_id }}</dd>
-                    <dt class="col-sm-4">单价（下单快照）</dt>
-                    <dd class="col-sm-8">¥ {{ "%.2f"|format(order.ppu) }}</dd>
-                    <dt class="col-sm-4">当前数量</dt>
-                    <dd class="col-sm-8">{{ order.quantity }}</dd>
-                </dl>
-                <form method="post"
-                      action="{{ url_for('order.order_update', order_id=order.order_id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">新数量（1~999）</label>
-                        <input type="number" class="form-control" name="quantity"
-                               min="1" max="999" value="{{ order.quantity }}" required>
-                    </div>
-                    <div class="form-text mb-3">金额会按「下单快照单价 × 新数量」重新计算。</div>
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-dark px-4">保存</button>
-                        <a href="{{ url_for('order.order_list') }}" class="btn btn-outline-secondary">返回</a>
-                    </div>
-                </form>
-            </div>
-        </div>
+<div class="formgrid">
+  <section class="card" data-od-id="order-form">
+    <div class="card__hd">
+      <h2>订单数量</h2>
+      <span class="card__note">保存后按新数量重算金额</span>
     </div>
+    <div class="card__bd">
+      <form method="post" action="{{ url_for('order.order_update', order_id=order.order_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="formrow">
+          <div class="formfield">
+            <label for="quantity">数量<span class="req">*</span></label>
+            <input class="input input--mono" type="number" name="quantity" id="quantity"
+                   min="1" max="999" value="{{ order.quantity }}" required>
+            <div class="hint">1 ~ 999 件；单价固定为下单快照，不会随商品调价变化。</div>
+          </div>
+
+          <div class="formfield formfield--full">
+            <div class="amount" data-amount-calc data-rate="{{ MMK_PER_CNY }}" data-ppu="{{ order.ppu }}">
+              <div class="amount__row"><span>单价（快照，折合人民币）</span><b data-unit-price>—</b></div>
+              <div class="amount__row amount__total"><span>应付金额</span><b data-amount-out>—</b></div>
+              <p class="amount__note">
+                应付金额 = 快照单价 × 新数量。订单目前是待付款，员工确认收款后变成「已支付」，
+                金额按快照写入，不会因为商品后续调价而改变。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">保存</button>
+          <a class="btn btn--ghost" href="{{ url_for('order.order_list') }}">取消</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <aside class="card" data-od-id="order-form-info">
+    <div class="card__hd"><h2>订单信息</h2><span class="card__note">只读</span></div>
+    <div class="card__bd">
+      <dl class="kvlist">
+        <div><dt>订单号</dt><dd class="mono">#{{ order.order_id }}</dd></div>
+        <div><dt>交易流水号</dt><dd class="mono">{{ order.transaction_id }}</dd></div>
+        <div><dt>客户 ID</dt><dd class="mono">{{ order.customer_id }}</dd></div>
+        <div><dt>产品 ID</dt><dd class="mono">{{ order.product_id }}</dd></div>
+        <div><dt>单价快照</dt><dd class="mono">¥ {{ order.ppu|cny }}</dd></div>
+        <div><dt>当前数量</dt><dd class="mono">{{ order.quantity }}</dd></div>
+        <div>
+          <dt>状态</dt>
+          <dd><span class="badge badge--warn">待付款</span></dd>
+        </div>
+      </dl>
+      <p class="hint" style="margin-top:14px">
+        订单一旦被确认收款就不能再改数量；需要取消请联系员工在订单列表操作。
+      </p>
+    </div>
+  </aside>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/form.js') }}"></script>
 {% endblock %}

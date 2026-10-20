@@ -1,65 +1,118 @@
-{% extends 'layout_t.html' %}
+{% extends 'base.html' %}
+
+{% block title %}{{ '添加产品' if mode == 'add' else '编辑产品' }} · xx订单平台{% endblock %}
+
+{% block pagehead %}
+<div class="pagehead" data-od-id="product-form-head">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t"><h1>{{ '添加产品' if mode == 'add' else '编辑产品' }}</h1></div>
+      <p class="pagehead__meta">
+        {% if mode == 'add' %}
+        新产品默认在售 · 产品 ID 由系统自动生成
+        {% else %}
+        {{ form.get('product_id', '') }} · {{ '在售' if (form.get('product_status', 1)|int) == 1 else '已下架' }}
+        {% endif %}
+      </p>
+      <p class="pagehead__legend">
+        单价以数据集原始币种 MMK 录入 · 页面按固定汇率折合人民币展示 · 调价只影响以后的新订单
+      </p>
+    </div>
+    <div class="pagehead__r">
+      <a class="btn btn--ghost" href="{{ url_for('order.product_list') }}">返回产品列表</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block body %}
-<div class="row justify-content-center">
-    <div class="col-lg-6">
-        <div class="card shadow-sm border-0 rounded-3">
-            <div class="card-header bg-white border-bottom pt-3 pb-3">
-                <h5 class="mb-0 fw-bold text-dark">
-                    {{ '添加产品' if mode == 'add' else '编辑产品' }}
-                </h5>
-            </div>
-            <div class="card-body">
-                <form method="post"
-                      action="{{ url_for('order.product_add') if mode == 'add'
-                                else url_for('order.product_update', product_id=form.get('product_id', '')) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-                    {% if mode == 'edit' %}
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">产品ID</label>
-                        <input type="text" class="form-control" value="{{ form.get('product_id', '') }}" disabled>
-                    </div>
-                    {% endif %}
-
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">产品名称</label>
-                        <input type="text" class="form-control" name="product_name" maxlength="128"
-                               value="{{ form.get('product_name', '') }}" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">产品分类</label>
-                        <input type="text" class="form-control" name="product_category" maxlength="64"
-                               value="{{ form.get('product_category', '') }}">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">单价 (PPU)</label>
-                        <div class="input-group">
-                            <span class="input-group-text">¥</span>
-                            <input type="number" class="form-control" name="ppu" step="0.01" min="0.01"
-                                   value="{{ form.get('ppu', '') }}" required>
-                        </div>
-                        {% if mode == 'edit' %}
-                        <div class="form-text">调价只影响以后的新订单，历史订单金额不变。</div>
-                        {% endif %}
-                    </div>
-                    {% if mode == 'edit' %}
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold text-secondary small">状态</label>
-                        <select class="form-select" name="product_status">
-                            <option value="1" {% if (form.get('product_status', 1)|int) == 1 %}selected{% endif %}>在售</option>
-                            <option value="2" {% if (form.get('product_status', 1)|int) == 2 %}selected{% endif %}>下架</option>
-                        </select>
-                    </div>
-                    {% endif %}
-
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-dark px-4">保存</button>
-                        <a href="{{ url_for('order.product_list') }}" class="btn btn-outline-secondary">返回</a>
-                    </div>
-                </form>
-            </div>
-        </div>
+<div class="formgrid">
+  <section class="card" data-od-id="product-form">
+    <div class="card__hd">
+      <h2>产品信息</h2>
+      <span class="card__note">{{ '新建' if mode == 'add' else '修改后立即生效' }}</span>
     </div>
+    <div class="card__bd">
+      <form method="post" data-price-form data-rate="{{ MMK_PER_CNY }}"
+            action="{{ url_for('order.product_add') if mode == 'add'
+                      else url_for('order.product_update', product_id=form.get('product_id', '')) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="formrow">
+          {% if mode == 'edit' %}
+          <div class="formfield">
+            <label for="productId">产品 ID</label>
+            <input class="input input--mono" id="productId" type="text"
+                   value="{{ form.get('product_id', '') }}" disabled>
+            <div class="hint">产品 ID 不可修改</div>
+          </div>
+          {% endif %}
+
+          <div class="formfield">
+            <label for="productName">产品名称<span class="req">*</span></label>
+            <input class="input" type="text" id="productName" name="product_name"
+                   maxlength="128" value="{{ form.get('product_name', '') }}" required>
+          </div>
+
+          <div class="formfield">
+            <label for="productCategory">产品分类</label>
+            <input class="input" type="text" id="productCategory" name="product_category"
+                   maxlength="64" value="{{ form.get('product_category', '') }}">
+            <div class="hint">可留空；列表里按分类展示彩色徽章</div>
+          </div>
+
+          <div class="formfield">
+            <label for="productPpu">单价（原始币种 MMK）<span class="req">*</span></label>
+            <div class="inputgroup">
+              <span class="inputgroup__addon">MMK</span>
+              <input class="input input--mono" type="number" id="productPpu" name="ppu"
+                     step="0.01" min="0.01" value="{{ form.get('ppu', '') }}" required>
+            </div>
+            <div class="hint">折合人民币：<b class="mono" data-price-out>—</b></div>
+          </div>
+
+          {% if mode == 'edit' %}
+          <div class="formfield">
+            <label for="productStatus">状态</label>
+            <select class="select" id="productStatus" name="product_status">
+              <option value="1" {% if (form.get('product_status', 1)|int) == 1 %}selected{% endif %}>在售</option>
+              <option value="2" {% if (form.get('product_status', 1)|int) == 2 %}selected{% endif %}>已下架</option>
+            </select>
+            <div class="hint">下架后客户看不到该商品，历史订单保留</div>
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">保存</button>
+          <a class="btn btn--ghost" href="{{ url_for('order.product_list') }}">取消</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <aside class="card" data-od-id="product-form-fx">
+    <div class="card__hd"><h2>币种与折算</h2><span class="card__note">展示口径</span></div>
+    <div class="card__bd">
+      <dl class="kvlist">
+        <div><dt>数据库存储</dt><dd>MMK 原值</dd></div>
+        <div><dt>固定汇率</dt><dd class="mono">1 CNY ≈ {{ MMK_PER_CNY }} MMK</dd></div>
+        <div><dt>折合人民币</dt><dd class="mono" data-price-out>—</dd></div>
+      </dl>
+      <p class="hint" style="margin-top:14px">
+        数据集原始金额是缅甸币，库内保留原值；页面与订单统一按固定汇率折合人民币展示，
+        汇率只是展示口径，不会写回业务数据。
+      </p>
+      {% if mode == 'edit' %}
+      <p class="hint" style="margin-top:8px">
+        调价不会改写历史订单：订单里的单价是下单时的快照，改数量也按快照价重算。
+      </p>
+      {% endif %}
+    </div>
+  </aside>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/form.js') }}"></script>
 {% endblock %}

@@ -419,6 +419,44 @@ def test_staff_cannot_delete_customer(client, accounts):
     assert resp.status_code == 403
 
 
+def test_staff_cannot_restore_customer(client, accounts):
+    token = _login(client, accounts['staff_phone'])
+    resp = client.post('/customer/restore', data={
+        'customer_id': accounts['customer2'], 'csrf_token': token,
+    })
+    assert resp.status_code == 403
+
+
+def test_customer_restore_reenables_account(client, test_engine, accounts):
+    """注销是软删除，必须能撤销：cus_status 2→1，停用的账号 is_active 2→1。"""
+    token = _login(client, accounts['admin_phone'])
+    cid = accounts['customer2']
+    phone = accounts['customer2_phone']
+
+    client.post('/customer/delete', data={'customer_id': cid, 'csrf_token': token})
+    assert _one(test_engine, 'SELECT cus_status FROM customers '
+                             'WHERE customer_id = :c', c=cid)['cus_status'] == 2
+    assert _one(test_engine, 'SELECT is_active FROM users WHERE phone = :p',
+                p=phone)['is_active'] == 2
+
+    resp = client.post('/customer/restore', data={
+        'customer_id': cid, 'csrf_token': token,
+    })
+    assert resp.status_code == 302
+    assert _one(test_engine, 'SELECT cus_status FROM customers '
+                             'WHERE customer_id = :c', c=cid)['cus_status'] == 1
+    assert _one(test_engine, 'SELECT is_active FROM users WHERE phone = :p',
+                p=phone)['is_active'] == 1
+
+    # 重复恢复：已经是正常状态，不报错也不改动数据
+    resp = client.post('/customer/restore', data={
+        'customer_id': cid, 'csrf_token': token,
+    })
+    assert resp.status_code == 302
+    assert _one(test_engine, 'SELECT cus_status FROM customers '
+                             'WHERE customer_id = :c', c=cid)['cus_status'] == 1
+
+
 def test_customer_delete_is_soft_and_disables_account(client, test_engine, accounts):
     token = _login(client, accounts['admin_phone'])
     before_orders = _count(test_engine,

@@ -1,180 +1,146 @@
-{% extends 'layout_t.html' %}
+{% extends 'base.html' %}
+
+{% block title %}{{ '订单管理' if is_staff else '我的订单' }} · xx订单平台{% endblock %}
+
+{% block pagehead %}
+{% set ns = namespace(pending=0, paid=0, cancelled=0) %}
+{% for o in datalist %}
+  {% if o.order_status == 1 %}{% set ns.pending = ns.pending + 1 %}
+  {% elif o.order_status == 2 %}{% set ns.paid = ns.paid + 1 %}
+  {% else %}{% set ns.cancelled = ns.cancelled + 1 %}{% endif %}
+{% endfor %}
+<div class="pagehead" data-od-id="order-head">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t"><h1>{{ '订单管理' if is_staff else '我的订单' }}</h1></div>
+      <p class="pagehead__meta">
+        共 {{ "{:,}".format(datalist|length) }} 笔订单
+        · 待付款 {{ "{:,}".format(ns.pending) }}
+        · 已支付 {{ "{:,}".format(ns.paid) }}
+        · 已取消 {{ "{:,}".format(ns.cancelled) }}
+      </p>
+      <p class="pagehead__legend">
+        {% if is_staff %}
+        金额按固定汇率折合人民币 · 确认线下收款后状态变为「已支付」· RFM 只统计已支付订单
+        {% else %}
+        金额按固定汇率折合人民币 · 下单后请等员工确认收款 · 确认后状态变为「已支付」并计入消费
+        {% endif %}
+        · 导入的历史订单没有支付确认时间，支付时间显示为 —
+      </p>
+    </div>
+    <div class="pagehead__r no-print">
+      {% if not is_staff %}
+      <a class="btn btn--primary" href="{{ url_for('order.product_list') }}">继续下单</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block body %}
-    <div class="card shadow-sm border-0 rounded-3">
+<section class="card" data-list
+         data-list-body="listBody" data-list-size="listSize"
+         data-list-info="listInfo" data-list-nav="listNav"
+         data-od-id="order-table">
+  <div class="card__hd">
+    <h2>订单列表 <span class="card__note">{{ "{:,}".format(datalist|length) }} 笔</span></h2>
+    {% if datalist %}
+    <span class="pager__size">
+      <label for="listSize">每页</label>
+      <select class="select" id="listSize">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
+    {% endif %}
+  </div>
 
-        <div class="card-header bg-white border-bottom pt-3 pb-3 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 fw-bold text-dark">订单列表</h5>
-            <div class="d-flex align-items-center gap-2">
-                <label class="text-secondary small mb-0">每页：</label>
-                <select class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;">
-                    <option value="10">10</option>
-                    <option value="20" selected>20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                </select>
+  {% if datalist %}
+  <div class="tblwrap tblwrap--scroll">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>订单号</th>
+          <th>交易 ID</th>
+          <th>订单日期</th>
+          <th>客户 ID</th>
+          <th>产品名称</th>
+          <th class="num">数量</th>
+          <th class="num">单价</th>
+          <th class="num">金额</th>
+          <th>状态</th>
+          <th>支付时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="listBody">
+        {% for o in datalist %}
+        <tr>
+          <td class="num" data-l="订单号">#{{ o.order_id }}</td>
+          <td class="num" data-l="交易 ID">{{ o.transaction_id }}</td>
+          <td class="num" data-l="订单日期">{{ o.order_date }}</td>
+          <td class="num" data-l="客户 ID">{{ o.customer_id }}</td>
+          <td data-l="产品名称">{{ o.product_name or '—' }}</td>
+          <td class="num" data-l="数量">{{ o.quantity }}</td>
+          <td class="num" data-l="单价">¥ {{ o.ppu|cny }}</td>
+          <td class="num" data-l="金额">¥ {{ o.amount|cny }}</td>
+          <td data-l="状态">
+            {% if o.order_status == 1 %}
+            <span class="badge badge--warn">待付款</span>
+            {% elif o.order_status == 2 %}
+            <span class="badge badge--ok">已支付</span>
+            {% else %}
+            <span class="badge badge--neutral">已取消</span>
+            {% endif %}
+          </td>
+          <td class="num" data-l="支付时间">{{ o.paid_at or '—' }}</td>
+          <td data-l="操作">
+            <div class="actions">
+              {% if o.order_status == 1 %}
+              <a class="btn btn--ghost btn--sm"
+                 href="{{ url_for('order.order_update', order_id=o.order_id) }}">改数量</a>
+              <form method="post" action="{{ url_for('order.order_delete') }}"
+                    onsubmit="return confirm('确认取消该订单吗？取消后不能恢复');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="order_id" value="{{ o.order_id }}">
+                <button class="btn btn--danger btn--sm" type="submit">取消</button>
+              </form>
+              {% if is_staff %}
+              <form method="post" action="{{ url_for('pay.confirm', order_id=o.order_id) }}"
+                    onsubmit="return confirm('确认已收到该订单的线下付款？');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn--primary btn--sm" type="submit">确认收款</button>
+              </form>
+              {% endif %}
+              {% else %}
+              —
+              {% endif %}
             </div>
-        </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pager">
+    <span class="pager__info" id="listInfo"></span>
+    <div class="pager__nav" id="listNav" role="navigation" aria-label="分页"></div>
+  </div>
+  {% else %}
+  <div class="empty">
+    <svg class="empty__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h6"/><path d="M9 16h6"/>
+    </svg>
+    <strong>暂无订单数据</strong>
+    <span>{% if is_staff %}还没有客户下单，或订单已被清理。{% else %}去「商品中心」挑一件商品，下单后这里会出现记录。{% endif %}</span>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
 
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0" id="dataTable">
-                    <thead class="table-light text-secondary">
-                        <tr>
-                            <th class="ps-4" style="width: 90px;">订单号</th>
-                            <th style="width: 150px;">交易ID</th>
-                            <th style="width: 110px;">订单日期</th>
-                            <th style="width: 130px;">客户ID</th>
-                            <th>产品名称</th>
-                            <th style="width: 70px;">数量</th>
-                            <th style="width: 100px;">单价</th>
-                            <th style="width: 110px;">金额</th>
-                            <th style="width: 100px;">状态</th>
-                            <th style="width: 150px;">支付时间</th>
-                            <th style="width: 220px;">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody">
-                        {% for data in datalist %}
-                        <tr>
-                            <td class="ps-4 text-secondary fw-medium">#{{ data.order_id }}</td>
-                            <td class="text-secondary">{{ data.transaction_id }}</td>
-                            <td>{{ data.order_date }}</td>
-                            <td class="text-secondary">{{ data.customer_id }}</td>
-                            <td class="fw-semibold text-dark">{{ data.product_name }}</td>
-                            <td>{{ data.quantity }}</td>
-                            <td>¥ {{ "%.2f"|format(data.ppu) }}</td>
-                            <td class="text-success fw-semibold">¥ {{ "%.2f"|format(data.amount) }}</td>
-                            <td>
-                                {% if data.order_status == 1 %}
-                                <span class="badge text-bg-warning">待付款</span>
-                                {% elif data.order_status == 2 %}
-                                <span class="badge text-bg-success">已支付</span>
-                                {% else %}
-                                <span class="badge text-bg-secondary">已取消</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-secondary small">
-                                {% if data.paid_at %}{{ data.paid_at }}
-                                {% else %}<span class="text-muted">—</span>{% endif %}
-                            </td>
-                            <td>
-                                {% if data.order_status == 1 %}
-                                <!-- 改数量：GET 打开修改页 -->
-                                <a href="/order/update?order_id={{ data.order_id }}"
-                                   class="btn btn-sm btn-outline-primary me-1" title="修改数量">
-                                    <i class="bi bi-pencil"></i>
-                                </a>
-                                <!-- 取消：POST + CSRF -->
-                                <form method="post" action="/order/delete" class="d-inline">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <input type="hidden" name="order_id" value="{{ data.order_id }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger me-1"
-                                            onclick="return confirm('确认取消该订单吗？取消后不能恢复')"
-                                            title="取消订单">
-                                        <i class="bi bi-x-circle"></i>
-                                    </button>
-                                </form>
-                                {% if is_staff %}
-                                <form method="post" action="/pay/confirm/{{ data.order_id }}" class="d-inline">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-success"
-                                            onclick="return confirm('确认已收到该订单的线下付款？')"
-                                            title="确认收款">
-                                        <i class="bi bi-check2-circle"></i> 收款
-                                    </button>
-                                </form>
-                                {% endif %}
-                                {% else %}
-                                <span class="text-muted small">—</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr id="emptyRow">
-                            <td colspan="11" class="text-center text-secondary py-5">
-                                <i class="bi bi-inbox fs-2 d-block mb-2"></i>暂无订单数据
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card-footer bg-white border-top d-flex justify-content-between align-items-center px-3 py-2" id="paginationBar">
-            <span class="text-secondary small" id="pageInfo"></span>
-            <nav><ul class="pagination pagination-sm mb-0" id="pagination"></ul></nav>
-        </div>
-
-    </div>
-
-<script>
-(function () {
-    const rows = Array.from(document.querySelectorAll('#tableBody tr:not(#emptyRow)'));
-    const pageInfo = document.getElementById('pageInfo');
-    const pagination = document.getElementById('pagination');
-    const pageSizeSelect = document.getElementById('pageSizeSelect');
-    const paginationBar = document.getElementById('paginationBar');
-    let currentPage = 1;
-
-    function pageSize() { return parseInt(pageSizeSelect.value); }
-
-    function render(page) {
-        currentPage = page;
-        const size = pageSize();
-        const total = rows.length;
-        const totalPages = Math.max(1, Math.ceil(total / size));
-        currentPage = Math.min(currentPage, totalPages);
-        const start = (currentPage - 1) * size;
-        const end = start + size;
-
-        rows.forEach((r, i) => r.style.display = (i >= start && i < end) ? '' : 'none');
-        pageInfo.textContent = total === 0 ? '' : `第 ${start + 1}–${Math.min(end, total)} 条，共 ${total} 条`;
-        paginationBar.style.display = total === 0 ? 'none' : '';
-
-        pagination.innerHTML = '';
-        const maxBtn = 7;
-        let pages = [];
-        if (totalPages <= maxBtn) {
-            for (let i = 1; i <= totalPages; i++) pages.push(i);
-        } else {
-            pages = [1];
-            let lo = Math.max(2, currentPage - 2), hi = Math.min(totalPages - 1, currentPage + 2);
-            if (lo > 2) pages.push('...');
-            for (let i = lo; i <= hi; i++) pages.push(i);
-            if (hi < totalPages - 1) pages.push('...');
-            pages.push(totalPages);
-        }
-
-        const prevLi = document.createElement('li');
-        prevLi.className = 'page-item' + (currentPage === 1 ? ' disabled' : '');
-        prevLi.innerHTML = `<a class="page-link" href="#">«</a>`;
-        prevLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage > 1) render(currentPage - 1); });
-        pagination.appendChild(prevLi);
-
-        pages.forEach(p => {
-            const li = document.createElement('li');
-            if (p === '...') {
-                li.className = 'page-item disabled';
-                li.innerHTML = `<span class="page-link">…</span>`;
-            } else {
-                li.className = 'page-item' + (p === currentPage ? ' active' : '');
-                li.innerHTML = `<a class="page-link" href="#">${p}</a>`;
-                li.querySelector('a').addEventListener('click', e => { e.preventDefault(); render(p); });
-            }
-            pagination.appendChild(li);
-        });
-
-        const nextLi = document.createElement('li');
-        nextLi.className = 'page-item' + (currentPage === totalPages ? ' disabled' : '');
-        nextLi.innerHTML = `<a class="page-link" href="#">»</a>`;
-        nextLi.querySelector('a').addEventListener('click', e => { e.preventDefault(); if (currentPage < totalPages) render(currentPage + 1); });
-        pagination.appendChild(nextLi);
-    }
-
-    pageSizeSelect.addEventListener('change', () => render(1));
-    render(1);
-})();
-</script>
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/list.js') }}"></script>
 {% endblock %}

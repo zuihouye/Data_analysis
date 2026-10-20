@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block title %}导入数据 · xx订单平台{% endblock %}
+
+{% block pagehead %}
+<div class="pagehead">
+  <div class="shell pagehead__in">
+    <div class="pagehead__id">
+      <div class="pagehead__t">导入数据</div>
+      <div class="pagehead__meta">
+        <span>整表重建</span> · <span>历史流水统一按「已支付」立账</span> ·
+        <span>数据来源：Kaggle 公开销售数据集</span>
+      </div>
+      <div class="pagehead__legend">
+        导入会先清空 customers / products / orders 三张表，再在一个事务里整批写入；
+        历史流水没有真实支付确认时间，统一按已支付立账，支付时间显示「—」。
+      </div>
+    </div>
+    <div class="pagehead__r">
+      <a class="btn btn--ghost btn--sm" href="{{ url_for('ge_RFM.ge_rfm') }}">查看 RFM 分析</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block body %}
+<div class="import-grid">
+  <section class="card">
+    <div class="card__hd"><h2>数据源</h2></div>
+    <div class="card__bd">
+      <dl class="kv">
+        <dt>文件路径</dt>
+        <dd>{{ csv_path }}</dd>
+        <dt>文件状态</dt>
+        <dd>
+          {% if csv_exists %}
+          <span class="badge badge--ok">已找到</span>
+          {% else %}
+          <span class="badge badge--danger">文件不存在</span>
+          {% endif %}
+        </dd>
+        <dt>数据来源</dt>
+        <dd>
+          <a href="https://www.kaggle.com/datasets/charmmyaeaung/raw-sales-dataset-for-rfm-customer-segmentation"
+             target="_blank" rel="noopener">Kaggle · Raw Sales Dataset for RFM Customer Segmentation</a>
+        </dd>
+        <dt>金额币种</dt>
+        <dd>原始数据为 MMK（缅币），库内保留原值，页面按固定汇率折合人民币展示</dd>
+        <dt>写入口径</dt>
+        <dd>历史流水统一按已支付立账（order_status=2），没有真实支付确认时间</dd>
+      </dl>
+
+      {% if not csv_exists %}
+      <div class="flash flash--warning" role="status">
+        没有找到 CSV 文件（{{ csv_path }}），请先准备数据文件再导入。
+      </div>
+      {% endif %}
+
+      <div class="formactions">
+        <button type="button" class="btn btn--primary" id="importBtn"
+                {% if not csv_exists %}disabled{% endif %}>开始导入</button>
+        <span class="hint" id="importHint">
+          将清空并重建三张业务表；写库前会做数据质量校验与业务数据保护检查
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card__hd">
+      <h2>导入结果</h2>
+      <span class="card__note" id="resultNote">还没有执行导入</span>
+    </div>
+    <div class="card__bd">
+      <div id="importResult" class="empty">
+        <svg class="empty__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+        </svg>
+        <p>点击左侧「开始导入」后，这里会显示导入行数、校验报告和前 20 行预览。</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin-top:16px">
+  <div class="card__hd">
+    <h2>当前库内容</h2>
+    <span class="card__note">导入成功后自动刷新</span>
+  </div>
+  <div class="card__bd">
+    <div class="statrow">
+      <div><span>客户</span><b id="cnt-customers">{{ '{:,}'.format(db_counts.customers) if db_counts else '—' }}</b></div>
+      <div><span>商品</span><b id="cnt-products">{{ '{:,}'.format(db_counts.products) if db_counts else '—' }}</b></div>
+      <div><span>订单</span><b id="cnt-orders">{{ '{:,}'.format(db_counts.orders) if db_counts else '—' }}</b></div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/import.js') }}"></script>
+{% endblock %}

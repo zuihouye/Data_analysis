@@ -71,8 +71,13 @@ def write_to_db(df, conn):
                     .drop_duplicates(subset=['customer_id']))
     products_df = (df[['product_id', 'product_name', 'product_category', 'ppu']]
                    .drop_duplicates(subset=['product_id']))
+    # 历史流水没有支付状态列，统一按「已支付」立账（order_status=2）：
+    #   - 数据集本身就是历史成交记录，没有待付款/已取消概念；
+    #   - RFM 只统计已支付订单，若不标记，导入后整张订单表都会被排除；
+    #   - paid_at 留空（NULL），R 指标用 order_date 计算，不依赖支付时间。
     orders_df = df[['transaction_id', 'order_date', 'customer_id',
-                    'product_id', 'quantity', 'ppu', 'amount']]
+                    'product_id', 'quantity', 'ppu', 'amount']].copy()
+    orders_df['order_status'] = 2
 
     # 按依赖顺序删：先子表 orders，再父表 —— 因此无需关闭外键检查
     for table in ('orders', 'customers', 'products'):

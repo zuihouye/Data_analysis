@@ -1,0 +1,140 @@
+/* ==========================================================================
+   RFM 客户分析页（rfm.css）
+   --------------------------------------------------------------------------
+   只放本页专属：KPI 条 / 分群矩阵 / 贡献排行 / 分布直方图 / 行动建议 / 打印。
+   通用外壳、按钮、表格、表单在 app.css。
+   ========================================================================== */
+
+main.shell { padding-top: 18px; }
+main.shell > section { margin-bottom: 16px; }
+
+/* ── KPI 条 ───────────────────────────────────────────────────────── */
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 12px 14px 13px; display: flex; flex-direction: column; gap: 2px;
+  transition: border-color .12s, background .12s; }
+.kpi:hover { border-color: var(--border-2); background: oklch(98.6% 0.006 250);
+  box-shadow: 0 1px 3px oklch(22% 0.02 240 / .08); }
+.kpi__label { font-size: var(--fs-sm); color: var(--fg-soft); display: flex;
+  flex-wrap: wrap; gap: 0 6px; align-items: center; }
+/* 与导航图标同一套线性风格：16 视窗、1.4 描边、圆头圆角。flex-start + 1px
+   让图标始终对齐标签首行——标签换行（窄屏 2 列）时不会被居中到两行之间。 */
+.kpi__ico { width: calc(var(--fs-sm) + 4px); height: calc(var(--fs-sm) + 4px);
+  flex: none; align-self: flex-start; margin-top: 1px; color: var(--muted); }
+.kpi__hint { font-size: var(--fs-xs); color: var(--fg-soft); }
+.kpi__value { font-family: var(--font-mono); font-size: var(--fs-kpi); font-weight: 600;
+  line-height: 1.18; letter-spacing: -.01em; margin-top: 2px; }
+.kpi__unit { font-size: var(--fs-sm); font-weight: 500; color: var(--fg-soft);
+  margin-left: 3px; font-family: var(--font-body); }
+.kpi__delta { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs);
+  margin-top: 2px; }
+.kpi__delta span { color: var(--fg-soft); }
+.delta { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px;
+  border-radius: 999px; font-weight: 650; }
+.delta--good { background: var(--ok-weak); color: var(--ok); }
+.delta--bad { background: var(--danger-weak); color: var(--danger); }
+.delta--flat { background: var(--neutral-weak); color: var(--fg-soft); }
+
+/* ── 筛选提示条 ───────────────────────────────────────────────────── */
+.filterbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  margin-bottom: 16px; background: var(--accent-weak);
+  border: 1px solid oklch(88% 0.06 145); border-radius: var(--r); }
+.filterbar[hidden] { display: none; }
+.filterbar__chip { display: inline-flex; align-items: center; gap: 7px; font-weight: 600;
+  font-size: var(--fs-sm); }
+.filterbar__chip i { width: 8px; height: 8px; border-radius: 2px; }
+.filterbar__txt { font-size: var(--fs-xs); color: var(--fg-soft); }
+
+/* ── 主图区 ───────────────────────────────────────────────────────── */
+.grid-hero { display: grid; grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+  gap: 16px; align-items: stretch; }
+/* 右卡与左卡等高：卡片拉满行高，排行列表按空间均分，底边齐平 */
+[data-od-id="segment-revenue-ranking"] { display: flex; flex-direction: column; }
+[data-od-id="segment-revenue-ranking"] > .card__bd { flex: 1; display: flex;
+  flex-direction: column; min-height: 0; }
+[data-od-id="segment-revenue-ranking"] #rankHost { flex: 1; display: flex;
+  flex-direction: column; justify-content: space-between; }
+.chart { display: block; width: 100%; height: auto; }
+.legendline { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 16px 0;
+  font-size: var(--fs-xs); color: var(--fg-soft); }
+.legendline i { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+  margin-right: 5px; vertical-align: middle; }
+
+/* ── 排行条 ───────────────────────────────────────────────────────── */
+.rank { display: block; width: 100%; padding: 6px 8px; border-radius: var(--r);
+  text-align: left; }
+.rank:hover { background: var(--hover); }
+.rank.is-on { background: var(--accent-weak); box-shadow: inset 3px 0 0 var(--accent-ink); }
+.rank__top { display: flex; align-items: center; gap: 7px; }
+.rank__top i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.rank__name { font-size: var(--fs-sm); font-weight: 600; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank__meta { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-soft);
+  white-space: nowrap; }
+.rank__track { position: relative; display: block; height: 10px; margin-top: 4px;
+  background: var(--bg); border-radius: 3px; }
+.rank__fill { position: absolute; left: 0; border-radius: 2px; }
+.rank__fill--cust { top: 0; height: 4px; background: var(--bar-neutral, oklch(74% 0.014 240)); }
+.rank__fill--rev { bottom: 0; height: 4px; }
+.rank__hd { display: flex; justify-content: space-between; font-size: var(--fs-xs);
+  color: var(--fg-soft); padding: 0 8px 4px; }
+
+/* ── 分布图 ───────────────────────────────────────────────────────── */
+.grid-dist { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.dist__hd { padding: 12px 16px 6px; }
+.dist__hd h3 { font-size: var(--fs-h2); font-weight: 650; }
+.dist__hd p { font-size: var(--fs-xs); color: var(--fg-soft); margin-top: 3px; }
+.dist__cap { padding: 6px 16px 14px; font-size: var(--fs-xs); color: var(--fg-soft);
+  font-family: var(--font-mono); }
+
+/* ── 行动建议 ─────────────────────────────────────────────────────── */
+.grid-act { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.act { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+.act__top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.act__p { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 700;
+  padding: 1px 6px; border-radius: 3px; background: var(--fg); color: var(--surface); }
+.act__tag { font-size: var(--fs-xs); font-weight: 600; color: var(--fg-soft);
+  border: 1px solid var(--border-2); border-radius: 999px; padding: 1px 8px; }
+.act h3 { font-size: var(--fs-body); font-weight: 650; line-height: 1.5; }
+.act p { font-size: var(--fs-sm); color: var(--fg-soft); }
+.act__stats { display: flex; flex-wrap: wrap; gap: 6px 14px; padding-top: 2px;
+  font-size: var(--fs-xs); color: var(--fg-soft); }
+.act__stats b { font-family: var(--font-mono); color: var(--fg); font-weight: 600; }
+.act__go { align-self: flex-start; margin-top: 2px; font-size: var(--fs-xs);
+  font-weight: 600; color: var(--accent-ink);
+  border-bottom: 1px solid oklch(85% 0.05 145); }
+
+/* ── 页脚 ─────────────────────────────────────────────────────────── */
+.foot { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 4px 0 36px; font-size: var(--fs-xs); color: var(--fg-soft); }
+
+/* ── 明细表：客户级分页表 ─────────────────────────────────────────── */
+.detail-card { margin-bottom: 16px; }
+.detail-card .tbl th { top: 0; }
+.detail-card .tbl td:first-child { font-family: var(--font-mono); color: var(--fg-soft); }
+
+/* ── 响应式 ───────────────────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid-hero { grid-template-columns: minmax(0, 1fr); }
+  .grid-act { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-dist { grid-template-columns: minmax(0, 1fr); }
+  .rank__meta { font-size: 10px; }
+  .rank { padding: 10px 8px; }
+}
+
+/* ── 打印 / 导出 PDF ──────────────────────────────────────────────── */
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  :root { --fs-xs: 16px; --fs-sm: 16px; --fs-body: 16px; --fs-h2: 17px;
+          --fs-h1: 22px; --fs-kpi: 30px; }
+  main.shell { padding-top: 8mm; max-width: none; }
+  section { margin-bottom: 10mm; break-inside: avoid; }
+  .kpi, .act, .card { break-inside: avoid; }
+  .detail-card .tbl th { position: static; }
+  .tbl thead { display: table-header-group; }
+}

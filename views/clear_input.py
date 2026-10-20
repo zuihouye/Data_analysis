@@ -1,13 +1,42 @@
 import logging
 
-from flask import Blueprint, jsonify
-from utils.loader import BusinessDataGuardError
-from utils import loader
+from flask import Blueprint, jsonify, render_template
+from sqlalchemy import text
+
+from utils import db, loader
+from utils.loader import DEFAULT_CSV, BusinessDataGuardError
 from utils.quality import DataQualityError
 from .auth import admin_required
 logger = logging.getLogger(__name__)
 
 ci_blue = Blueprint('ci_blue', __name__)
+
+
+def _db_counts():
+    """导入页展示用：当前库里三张表的行数。
+
+    库连不上时返回 None —— 导入页本身要能打开，不能因为读计数失败就 500。
+    """
+    try:
+        with db.engine.connect() as conn:
+            return {
+                'customers': int(conn.execute(text('SELECT COUNT(*) FROM customers')).scalar() or 0),
+                'products': int(conn.execute(text('SELECT COUNT(*) FROM products')).scalar() or 0),
+                'orders': int(conn.execute(text('SELECT COUNT(*) FROM orders')).scalar() or 0),
+            }
+    except Exception as exc:  # noqa: BLE001 - 展示页容错
+        logger.warning('读取库内行数失败: %s', exc)
+        return None
+
+
+@ci_blue.route('/import')
+@admin_required
+def import_page():
+    """导入历史流水的页面（真正的写入仍是下面的 POST /clear_input）。"""
+    return render_template('import_t.html',
+                           csv_path=str(DEFAULT_CSV),
+                           csv_exists=DEFAULT_CSV.exists(),
+                           db_counts=_db_counts())
 
 
 # 安全层已补齐：
@@ -39,6 +68,12 @@ def clear_input():
         'status': 'success',
         'message': '数据加载成功！',
         'total_rows': len(df),
+        # 导入后页面用这组数字刷新「当前库内容」，不用再单独请求
+        'counts': {
+            'customers': int(df['customer_id'].nunique()),
+            'products': int(df['product_id'].nunique()),
+            'orders': int(len(df)),
+        },
         'quality_report': report,
         'data_preview': preview.to_dict(orient='records'),
     })

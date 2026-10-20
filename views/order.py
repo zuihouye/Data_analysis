@@ -21,6 +21,7 @@ from sqlalchemy import text
 from utils import db
 from utils.order_ops import (OrderError, cancel_order, create_order, get_order,
                              update_quantity)
+from utils.rfm_report import MMK_PER_CNY
 
 from .auth import customer_required, login_required, staff_required
 
@@ -76,8 +77,9 @@ def order_list():
 
     df = pd.read_sql(text(sql), con=db.engine, params=params)
     df['order_date'] = df['order_date'].astype(str)
-    # NaT 是 pandas 的空日期；转成空串，模板不用再判断
-    df['paid_at'] = df['paid_at'].astype(str).replace({'NaT': '', 'None': ''})
+    # 支付时间可能为空（导入的历史订单没有支付确认时间）：统一转成空串，模板显示「—」
+    # 不用 astype(str)：pandas 对 None/NaT 会留下 float('nan')，模板里就成了字面量 nan
+    df['paid_at'] = ['' if pd.isna(v) else str(v) for v in df['paid_at']]
     return render_template('order_list_t.html',
                            datalist=df.to_dict(orient='records'),
                            is_staff=is_staff,
@@ -215,7 +217,7 @@ def order_create():
             return redirect(url_for('order.order_create'))
 
         flash(f'下单成功：{result["transaction_id"]}，'
-              f'应付 ¥{result["amount"]:.2f}（等待员工确认收款）', 'success')
+              f'应付 ¥{float(result["amount"]) / MMK_PER_CNY:,.2f}（等待员工确认收款）', 'success')
         return redirect(url_for('order.order_list'))
 
     # GET：生成新 token + 列出在售商品

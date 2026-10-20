@@ -18,7 +18,7 @@ import uuid
 from functools import wraps
 from urllib.parse import urlsplit
 
-from flask import Blueprint, session, request, current_app, redirect, url_for, render_template
+from flask import Blueprint, session, request, current_app, redirect, url_for, render_template, abort
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError          # 新增：手机号 UNIQUE 冲突时捕获
 from werkzeug.security import check_password_hash, generate_password_hash  # 新增 generate_password_hash
@@ -117,7 +117,7 @@ def admin_required(view):
         if session.get("role") != 2:
             logger.warning('越权访问被拦截: user=%s %s',
                            session.get('user_id'), request.path)
-            return '需要管理员权限。', 403
+            abort(403, '需要管理员权限。')
         return view(*args, **kwargs)
     return warpper
 
@@ -134,7 +134,7 @@ def staff_required(view):
         if session.get("role") not in (1, 2):
             logger.warning('越权访问被拦截（需要员工）: user=%s role=%s %s',
                            session.get('user_id'), session.get('role'), request.path)
-            return '需要员工或管理员权限。', 403
+            abort(403, '需要员工或管理员权限。')
         return view(*args, **kwargs)
     return wrapper
 
@@ -152,7 +152,7 @@ def customer_required(view):
         if session.get("role") != 0 or not session.get("customer_id"):
             logger.warning('越权访问被拦截（需要客户）: user=%s role=%s %s',
                            session.get('user_id'), session.get('role'), request.path)
-            return '该页面仅客户可用。', 403
+            abort(403, '该页面仅客户可用。')
         return view(*args, **kwargs)
     return wrapper
 

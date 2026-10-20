@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}xx订单平台{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+
+{% set ep = request.endpoint or '' %}
+{% set is_customers = ep.startswith('user.') %}
+{% set is_orders = ep in ('order.order_list', 'order.order_create', 'order.order_update',
+                          'order.order_delete', 'pay.order_detail') %}
+{% set is_products = ep.startswith('order.product') %}
+{% set is_analytics = ep.startswith('ge_RFM.') %}
+{% set is_import = ep.startswith('ci_blue.') %}
+
+<header class="masthead" data-od-id="platform-header">
+  <div class="plat no-print">
+    <div class="shell plat__in">
+      <a class="plat__brand" href="{{ url_for('hello_world') }}">xx订单平台</a>
+
+      <nav class="plat__nav" aria-label="主导航">
+        {% if current_user and current_user.role == 0 %}
+          <a class="plat__item {{ 'plat__item--on' if is_products }}" href="{{ url_for('order.product_list') }}"
+             {% if is_products %}aria-current="page"{% endif %}>
+            <svg class="plat__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 13.8 5.1v5.8L8 14 2.2 10.9V5.1z"/><path d="M2.2 5.1 8 8.2l5.8-3.1"/><path d="M8 8.2V14"/></svg>商品中心</a>
+          <a class="plat__item {{ 'plat__item--on' if is_orders }}" href="{{ url_for('order.order_list') }}"
+             {% if is_orders %}aria-current="page"{% endif %}>
+            <svg class="plat__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.1" y="2.2" width="9.8" height="11.6" rx="1.5"/><path d="M5.6 5.6h4.8"/><path d="M5.6 8h4.8"/><path d="M5.6 10.4h3"/></svg>我的订单</a>
+        {% else %}
+          {% if current_user and current_user.role == 2 %}
+            <a class="plat__item {{ 'plat__item--on' if is_import }}" href="{{ url_for('ci_blue.import_page') }}"
+               {% if is_import %}aria-current="page"{% endif %}>
+              <svg class="plat__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 9.6v2.6a1.6 1.6 0 0 0 1.6 1.6h7.6a1.6 1.6 0 0 0 1.6-1.6V9.6"/><path d="M8 2.2v6.3"/><path d="M5.3 5.8 8 8.5l2.7-2.7"/></svg>导入数据</a>
+          {% endif %}
+          <a class="plat__item {{ 'plat__item--on' if is_customers }}" href="{{ url_for('user.customer_list') }}"
+             {% if is_customers %}aria-current="page"{% endif %}>
+            <svg class="plat__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.4" cy="5.9" r="2.4"/><path d="M2.2 13.4c0-2.4 1.9-3.8 4.2-3.8s4.2 1.4 4.2 3.8"/><path d="M10.8 4.1a2.1 2.1 0 0 1 0 3.9"/><path d="M11.4 9.8c1.6.4 2.5 1.5 2.5 3"/></svg>客户管理</a>
+          <a class="plat__item {{ 'plat__item--on' if is_orders }}" href="{{ url_for('order.order_list') }}"
+             {% if is_orders %}aria-current="page"{% endif %}>
+            <svg class="plat__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.1" y="2.2" width="9.8" height="11.6" rx="1.5"/><path d="M5.6 5.6h4.8"/><path d="M5.6 8h4.8"/><path d="M5.6 10.4h3"/></svg>订单管理</a>
+          <a class="plat__item {{ 'plat__item--on' if is_products }}" href="{{ url_for('order.product_list') }}"
+             {% if is_products %}aria-current="page"{% endif %}>
+            <svg class="plat__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 13.8 5.1v5.8L8 14 2.2 10.9V5.1z"/><path d="M2.2 5.1 8 8.2l5.8-3.1"/><path d="M8 8.2V14"/></svg>产品管理</a>
+          <a class="plat__item {{ 'plat__item--on' if is_analytics }}" href="{{ url_for('ge_RFM.ge_rfm') }}"
+             {% if is_analytics %}aria-current="page"{% endif %}>
+            <svg class="plat__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.4 13.6h11.2"/><path d="M5 13.6V8.8"/><path d="M8 13.6V4.6"/><path d="M11 13.6V7.2"/></svg>数据分析</a>
+        {% endif %}
+      </nav>
+
+      {% if current_user %}
+      <div class="me no-print" data-od-id="account-menu">
+        <button class="me__btn" id="meBtn" type="button" aria-expanded="false" aria-haspopup="menu">
+          <span class="me__av" aria-hidden="true">{{ current_user.username[:1] or '?' }}</span>
+          <span class="me__txt">
+            <b class="me__name">{{ current_user.username }}</b>
+            <span class="me__role">{{ current_user.role_name }}{% if current_user.role %} · 内部账号{% else %} · 客户账号{% endif %}</span>
+          </span>
+          <span class="caret" aria-hidden="true"></span>
+        </button>
+        <div class="me__menu" id="meMenu" role="menu" hidden>
+          <div class="me__hd">
+            <b>{{ current_user.username }}</b>
+            <span>{{ current_user.phone }} · {{ current_user.role_name }} · 用户 ID {{ current_user.id }}</span>
+          </div>
+          {% block account_extra %}{% endblock %}
+          <form class="me__form" method="post" action="{{ url_for('auth.logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" role="menuitem">退出登录</button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% block pagehead %}{% endblock %}
+</header>
+
+<main class="shell">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flashstack no-print">
+      {% for category, message in messages %}
+      <div class="flash flash--{{ category or 'message' }}" role="status">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+  {% block body %}{% endblock %}
+</main>
+
+<div class="tip" id="tip" hidden></div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

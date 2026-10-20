@@ -135,7 +135,8 @@ def _score_by_rank(s, reverse=False):
     return pd.qcut(values.rank(method='first'), k, labels=['1', '2', '3'][-k:])
 
 
-def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE):
+def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE,
+              as_of=None, start=None):
     """
     计算 RFM 分层表。
 
@@ -144,16 +145,28 @@ def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE):
     ⚠️ 顺序：**先切窗口，再算 RFM**。反过来（先在全量上算好分位点、再筛客户）
     得到的是"全量排名的一个子集"，而不是"窗口内的排名"。实测近 3 个月窗口下
     有 **93.5%** 的客户 rfm_group 会被改写，等于分层结论全错。
+
+    as_of / start 用于**环比**：传了 as_of 就以它为基准日（而不是数据里最新一天），
+    start 给定时按 [start, as_of] 的显式区间取订单。这样上一周期可以在它自身的
+    客群里重算三分位，不会借用本期的分位点。
     """
     orders = orders_df.copy()
     orders['order_date'] = pd.to_datetime(orders['order_date'])
-    snapshot = orders['order_date'].max()
+    snapshot = (pd.Timestamp(as_of) if as_of is not None
+                else orders['order_date'].max())
 
     if window not in WINDOWS:          # 脏 key 回落默认，别让 KeyError 冒到页面上
         window = DEFAULT_WINDOW
     label, offset = WINDOWS[window]
-    if offset is not None:
-        orders = orders[orders['order_date'] > snapshot - offset]
+    if start is not None:
+        begin = pd.Timestamp(start)
+        orders = orders[(orders['order_date'] >= begin)
+                        & (orders['order_date'] <= snapshot)]
+    elif offset is not None:
+        begin = snapshot - offset
+        orders = orders[orders['order_date'] > begin]
+    else:
+        begin = None
 
     columns = ['customer_id', 'r', 'f', 'm', 'r_leval', 'f_leval',
                'm_leval', 'segment', 'segment_color', 'rfm_group']
@@ -161,8 +174,8 @@ def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE):
         'window': window,
         'window_label': label,
         'snapshot': snapshot.date().isoformat() if pd.notna(snapshot) else None,
-        'start': (snapshot - offset).date().isoformat()
-                 if offset is not None and pd.notna(snapshot) else None,
+        'start': begin.date().isoformat()
+                 if begin is not None and pd.notna(snapshot) else None,
         'orders': int(len(orders)),
         'customers': 0,
     }

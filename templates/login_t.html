@@ -1,87 +1,55 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>用户登录</title>
-    <link rel="stylesheet" href="/static/bootstrap-5.3.0-alpha1-dist/css/bootstrap.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <style>
-        body {
-            background-color: #f0f2f5;
-        }
-        .login-wrapper {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .login-card {
-            width: 420px;
-            border: none;
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.10);
-        }
-        .login-card .card-header {
-            background: linear-gradient(135deg, #343a40 0%, #495057 100%);
-            border-radius: 16px 16px 0 0;
-            padding: 28px 32px 20px;
-        }
-        .login-card .card-body {
-            padding: 32px;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>登录 · xx订单平台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
-<body>
-<div class="login-wrapper">
-    <div class="card login-card">
-        <div class="card-header text-center">
-            <h4 class="text-white fw-bold mb-1">
-                <i class="bi bi-box-seam me-2"></i>xx订单平台
-            </h4>
-            <p class="text-white-50 mb-0 small">请登录您的账号</p>
-        </div>
-        <div class="card-body">
-            <form method="post">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<body class="auth">
+  <div class="auth__top">
+    <b>xx订单平台</b><span>数据分析 · 客户 / 订单 / 产品管理</span>
+  </div>
 
-                <div class="mb-3">
-                    <label class="form-label fw-semibold text-secondary small">手机号</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light border-end-0">
-                            <i class="bi bi-phone text-secondary"></i>
-                        </span>
-                        <input type="text" class="form-control border-start-0 ps-0"
-                               placeholder="请输入手机号" name="mobile" autocomplete="username"/>
-                    </div>
-                </div>
-                <div class="mb-4">
-                    <label class="form-label fw-semibold text-secondary small">密码</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light border-end-0">
-                            <i class="bi bi-lock text-secondary"></i>
-                        </span>
-                        <input type="password" class="form-control border-start-0 ps-0"
-                               name="pwd" placeholder="请输入密码" autocomplete="current-password">
-                    </div>
-                </div>
-                {% if error %}
-                <div class="alert alert-danger py-2 mb-3 small">
-                    <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
-                </div>
-                {% endif %}
-                <button type="submit" class="btn btn-dark w-100 py-2 fw-semibold">
-                    <i class="bi bi-box-arrow-in-right me-1"></i>登录
-                </button>
-                <div class="text-center mt-3">
-                    <span class="text-secondary small">还没有账号？</span>
-                    <a href="/register" class="small text-decoration-none">立即注册</a>
-                </div>
-            </form>
-        </div>
+  <div class="auth__main">
+    <div class="auth__side">
+      <h1>把每一笔订单，<br>变成可执行的客户分层</h1>
+      <p>RFM 客户价值分析、订单与商品管理、历史数据导入——内部员工与客户共用一套账号体系。</p>
+      <ul class="auth__points">
+        <li><i></i>RFM 八分群：三分位打分，口径与后端计算完全一致</li>
+        <li><i></i>回看窗口 3 / 6 / 12 个月与全部历史，支持环比</li>
+        <li><i></i>客户 / 员工 / 管理员三种角色，权限由服务端校验</li>
+      </ul>
     </div>
-</div>
-<script src="/static/jquery-4.0.0.min.js"></script>
-<script src="/static/bootstrap-5.3.0-alpha1-dist/js/bootstrap.bundle.min.js"></script>
+
+    <div class="auth__card">
+      <h2>账号登录</h2>
+      <p class="sub">使用注册手机号登录，员工账号由管理员创建</p>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="formfield">
+          <label for="mobile">手机号</label>
+          <input class="input" type="text" id="mobile" name="mobile"
+                 placeholder="请输入 11 位手机号" autocomplete="username"
+                 inputmode="numeric" required autofocus>
+        </div>
+        <div class="formfield">
+          <label for="pwd">密码</label>
+          <input class="input" type="password" id="pwd" name="pwd"
+                 placeholder="请输入密码" autocomplete="current-password" required>
+        </div>
+
+        {% if error %}
+        <div class="flash flash--error" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <button class="btn btn--primary" type="submit">登录</button>
+      </form>
+
+      <div class="auth__foot">还没有账号？<a href="{{ url_for('auth.register') }}">注册客户账号</a></div>
+    </div>
+  </div>
 </body>
 </html>
