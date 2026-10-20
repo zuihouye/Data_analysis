@@ -7,6 +7,9 @@
 # 既写成了 UTF-16LE(带 BOM, git 直接把它当二进制文件), 又把本地路径全带了进来。
 Flask==3.1.3
 pandas==3.0.6
+# utils/quality.py 里直接用 numpy（np.isclose / np.isfinite），
+# 虽然 pandas 会把它带进来，但直接 import 的包就该显式声明版本
+numpy==2.5.3
 SQLAlchemy==2.1.4
 PyMySQL==1.2.3
 python-dotenv==1.2.4

@@ -92,6 +92,47 @@
     </div>
 </div>
 
+<!-- 分群明细与运营动作：8 个经典分群（三档折两档：3=高，1/2=低） -->
+<div class="card shadow-sm border-0 rounded-3 mb-4">
+    <div class="card-header bg-white border-0 pt-3 pb-2">
+        <div class="fw-bold text-dark">分群明细与运营动作</div>
+        <div class="text-secondary small mt-1">
+            分群（R·F·M）：每一维的 3 档折成两档 —— 3 = 高，1/2 = 低，2×2×2 落回 8 个经典分群
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-light text-secondary">
+                <tr>
+                    <th class="ps-4" style="width: 230px;">分群</th>
+                    <th style="width: 130px;">R · F · M</th>
+                    <th style="width: 110px;">人数</th>
+                    <th style="width: 90px;">占比</th>
+                    <th>运营动作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in meta.segments %}
+                <tr{% if s.count == 0 %} class="text-secondary opacity-75"{% endif %}>
+                    <td class="ps-4 fw-semibold">
+                        <span class="d-inline-block rounded-1 bg-{{ s.color }} me-2"
+                              style="width: 10px; height: 10px;"></span>{{ s.name }}
+                    </td>
+                    <td>
+                        <span class="badge text-bg-{{ s.color }} me-1">R{{ s.r_band }}</span>
+                        <span class="badge text-bg-{{ s.color }} me-1">F{{ s.f_band }}</span>
+                        <span class="badge text-bg-{{ s.color }}">M{{ s.m_band }}</span>
+                    </td>
+                    <td>{{ s.count }}</td>
+                    <td>{{ "%.1f"|format(s.ratio) }}%</td>
+                    <td class="text-secondary small">{{ s.action }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <!-- 数据表格 -->
 <div class="card shadow-sm border-0 rounded-3">
     <div class="card-body p-0">
@@ -107,6 +148,7 @@
                         <th style="width: 80px;">F 评级</th>
                         <th style="width: 80px;">M 评级</th>
                         <th style="width: 100px;">RFM 分组</th>
+                        <th style="width: 150px;">客户分群</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -143,10 +185,13 @@
                         <td>
                             <span class="badge rounded-pill text-bg-dark fw-bold">{{ row.rfm_group }}</span>
                         </td>
+                        <td>
+                            <span class="badge rounded-pill text-bg-{{ row.segment_color }}">{{ row.segment }}</span>
+                        </td>
                     </tr>
                     {% else %}
                     <tr id="emptyRow">
-                        <td colspan="8" class="text-center text-secondary py-5">
+                        <td colspan="9" class="text-center text-secondary py-5">
                             <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>暂无 RFM 数据，请先从右上角「数据分析 → 导入数据」导入
                         </td>
                     </tr>

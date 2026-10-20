@@ -1,13 +1,14 @@
 """支付相关接口。
 
 三条不变量（改这个文件前先读一遍）：
+  0. 三个接口都挂了 @login_required：谁有权限调是第一层，CSRF 只防"借用已登录浏览器的身份"；
   1. 任何"读取订单状态并根据它做决定"的操作，都必须先拿 order_lock(order_id)；
   2. 状态判断 + 状态修改必须在同一个事务里，且用条件 UPDATE 的 rowcount 判定结果，
      不允许写成「先 if 查出来的状态，再无条件 UPDATE」；
   3. 调第三方网关（网络 IO）必须放在事务之外，绝不放在持有行锁的 with 块里。
 
 当前阶段：只落地"锁 + 幂等 + 状态机"骨架，不接真实支付网关。
-真网关 / 回调 / 流水表见第 11 节 P1-B 待办。
+真网关 / 回调 / 流水表见第 11 节（P1-B，已决定不做）。
 """
 
 import logging
@@ -18,6 +19,8 @@ from sqlalchemy import text
 from utils import db
 from utils.idempotent import idempotent
 from utils.lock import LockBusyError, order_lock
+
+from .auth import login_required
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,7 @@ def _fetch_order(conn, order_id, for_update=False):
 
 
 @pay_blue.route('/order/<int:order_id>', methods=['GET'])
+@login_required
 def order_detail(order_id):
     """查询订单可支付状态。前端轮询支付结果时也用它。"""
     with db.engine.begin() as conn:
@@ -48,6 +52,7 @@ def order_detail(order_id):
 
 
 @pay_blue.route('/prepay/<int:order_id>', methods=['POST'])
+@login_required
 @idempotent('prepay')
 def prepay(order_id):
     """发起支付：返回给前端的网关调起参数。
@@ -75,7 +80,7 @@ def prepay(order_id):
                 }
             # 事务已结束（行锁已释放），下面才允许做网络 IO
             return jsonify(ok=False, code='PAY_NOT_IMPLEMENTED',
-                           msg='支付网关尚未接入（P1-B 待办）',
+                           msg='支付网关尚未接入（演示环境）',
                            out_trade_no=params['out_trade_no']), 501
     except LockBusyError as e:
         # 409 而不是 500：这是"另一个请求正在处理"，客户端稍后重试即可
@@ -86,6 +91,7 @@ def prepay(order_id):
 
 
 @pay_blue.route('/cancel/<int:order_id>', methods=['POST'])
+@login_required
 @idempotent('cancel')
 def cancel(order_id):
     """取消未支付订单。

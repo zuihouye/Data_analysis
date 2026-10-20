@@ -38,6 +38,74 @@ F_MODE = 'rank'
 
 LEVELS = 3
 
+# ---------------------------------------------------------------- 客户分群
+# 三维各 3 档 → 折成高/低两档（3 = 高，1/2 = 低）→ 2×2×2 = 8 个经典分群。
+#
+# 为什么要折：27 种组合没法一一配运营动作，运营只关心"值不值得投"；
+# 8 分群既能一眼看懂，又能直接对上动作。key 的 3 位依次是 R/F/M，
+# 1 = 高，0 = 低（例如 '110' = R 高 / F 高 / M 低）。
+#
+# color 是前端徽章色：重要且近期的用绿（维护），重要但流失的用橙（挽回），
+# 一般的用蓝，最差一档用灰（低优先级）。
+SEGMENTS = {
+    '111': {'name': '重要价值客户', 'color': 'success',
+            'action': '保持：VIP 服务 + 专属权益，重点维护防流失'},
+    '110': {'name': '一般价值客户', 'color': 'primary',
+            'action': '提客单：满减 / 套装搭配，把高频低客单往上带'},
+    '101': {'name': '重要深耕客户', 'color': 'success',
+            'action': '提频次：关联品类推荐 + 复购提醒'},
+    '100': {'name': '一般发展客户', 'color': 'primary',
+            'action': '培育：新客券 + 首购引导，先让他买第二次'},
+    '011': {'name': '重要唤回客户', 'color': 'warning',
+            'action': '唤回：专属召回券 + 客服回访，这类人丢了最可惜'},
+    '010': {'name': '一般保持客户', 'color': 'primary',
+            'action': '唤醒 + 提客单：低成本触达，试探性优惠'},
+    '001': {'name': '重要挽留客户', 'color': 'warning',
+            'action': '最高优先级挽回：大额券 / 一对一沟通'},
+    '000': {'name': '一般挽留客户', 'color': 'secondary',
+            'action': '低成本维持：短信触达即可，不投广告费'},
+}
+
+# 页面展示顺序：按运营优先级（重要 × 近/远），不是按人数
+SEGMENT_ORDER = ['111', '011', '101', '001', '110', '010', '100', '000']
+
+
+def band_of(level):
+    """三维分档折成两档：3 → 高，1/2 → 低。"""
+    return '高' if str(level) == '3' else '低'
+
+
+def segment_key(r_leval, f_leval, m_leval):
+    """(R, F, M) 三档 → 8 分群的 key（'111' … '000'）。"""
+    return ''.join('1' if band_of(v) == '高' else '0'
+                   for v in (r_leval, f_leval, m_leval))
+
+
+def segment_of(r_leval, f_leval, m_leval):
+    """(R, F, M) 三档 → 分群中文名。"""
+    return SEGMENTS[segment_key(r_leval, f_leval, m_leval)]['name']
+
+
+def _segment_summary(rfm, total):
+    """按 SEGMENT_ORDER 汇总 8 分群（人数 / 占比 / 高低档 / 运营动作），给页面面板用。"""
+    counts = rfm['segment'].value_counts().to_dict() if total else {}
+    rows = []
+    for key in SEGMENT_ORDER:
+        info = SEGMENTS[key]
+        count = int(counts.get(info['name'], 0))
+        rows.append({
+            'key': key,
+            'name': info['name'],
+            'color': info['color'],
+            'action': info['action'],
+            'r_band': '高' if key[0] == '1' else '低',
+            'f_band': '高' if key[1] == '1' else '低',
+            'm_band': '高' if key[2] == '1' else '低',
+            'count': count,
+            'ratio': round(count / total * 100, 1) if total else 0.0,
+        })
+    return rows
+
 
 def window_options():
     """给模板用的下拉框选项（保持 WINDOWS 的声明顺序）"""
@@ -88,7 +156,7 @@ def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE):
         orders = orders[orders['order_date'] > snapshot - offset]
 
     columns = ['customer_id', 'r', 'f', 'm', 'r_leval', 'f_leval',
-               'm_leval', 'rfm_group']
+               'm_leval', 'segment', 'segment_color', 'rfm_group']
     meta = {
         'window': window,
         'window_label': label,
@@ -101,6 +169,7 @@ def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE):
 
     if orders.empty:
         meta['range'] = '没有数据'
+        meta['segments'] = _segment_summary(None, 0)
         return pd.DataFrame(columns=columns), meta
 
     orders['r_day'] = (snapshot - orders['order_date']).dt.days
@@ -121,8 +190,16 @@ def rfm_table(customers_df, orders_df, window=DEFAULT_WINDOW, f_mode=F_MODE):
     rfm['rfm_group'] = (rfm['r_leval'].astype(str)
                         + rfm['f_leval'].astype(str)
                         + rfm['m_leval'].astype(str))
+    # 三档折两档 → 8 分群名称（页面表格和「分群明细」面板都用它）
+    rfm['segment'] = [segment_of(r, f, m)
+                      for r, f, m in zip(rfm['r_leval'], rfm['f_leval'],
+                                         rfm['m_leval'])]
+    # 徽章颜色跟着分群走，模板里就不用再写一遍 if 判断
+    rfm['segment_color'] = rfm['segment'].map(
+        {info['name']: info['color'] for info in SEGMENTS.values()})
 
     meta['customers'] = int(len(rfm))
+    meta['segments'] = _segment_summary(rfm, len(rfm))
     meta['range'] = (f'{meta["start"]} ~ {meta["snapshot"]}'
                      if meta.get('start') else f'截至 {meta["snapshot"]}')
     return rfm[columns], meta

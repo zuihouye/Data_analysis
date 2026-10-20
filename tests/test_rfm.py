@@ -6,7 +6,9 @@ import 数据库，就是为了能这样直接测。
 """
 import pandas as pd
 
-from utils.rfm import DEFAULT_WINDOW, WINDOWS, rfm_table, window_options
+from utils.rfm import (DEFAULT_WINDOW, SEGMENTS, SEGMENT_ORDER, WINDOWS,
+                       band_of, rfm_table, segment_key, segment_of,
+                       window_options)
 
 
 def _orders(rows):
@@ -129,7 +131,12 @@ def test_empty_orders_returns_empty_table():
     assert len(rfm) == 0
     assert meta['customers'] == 0
     assert list(rfm.columns) == ['customer_id', 'r', 'f', 'm',
-                                 'r_leval', 'f_leval', 'm_leval', 'rfm_group']
+                                 'r_leval', 'f_leval', 'm_leval',
+                                 'segment', 'segment_color', 'rfm_group']
+    # 没数据时 8 个分群仍然要下发（页面面板是固定 8 行，计数全 0）
+    assert [s['name'] for s in meta['segments']] == \
+        [SEGMENTS[k]['name'] for k in SEGMENT_ORDER]
+    assert sum(s['count'] for s in meta['segments']) == 0
 
 
 def test_tiny_population_does_not_crash():
@@ -189,3 +196,63 @@ def test_window_options_are_template_ready():
     assert [o['key'] for o in opts] == list(WINDOWS)
     assert all(set(o) == {'key', 'label'} for o in opts)
     assert {'3m', '6m', '12m', 'all'} == set(WINDOWS)
+
+
+# ---------------------------------------------------------------- 客户分群
+
+def test_band_folds_three_levels_into_two():
+    """折档规则：3 = 高，1/2 = 低 —— 这是 27 组合收敛到 8 分群的唯一依据"""
+    assert band_of('3') == '高'
+    assert band_of('2') == '低'
+    assert band_of('1') == '低'
+    # 2 档（客户数不足时的降级分档）也按"只有 3 才是高"处理
+    assert band_of(2) == '低'
+
+
+def test_eight_segments_cover_every_combination():
+    """2×2×2 必须正好铺满 8 个分群，且 key/中文名/高低档一一对应"""
+    assert len(SEGMENTS) == 8
+    assert len(SEGMENT_ORDER) == 8
+    assert set(SEGMENT_ORDER) == set(SEGMENTS)
+
+    names = set()
+    for key in SEGMENT_ORDER:
+        levals = tuple('3' if bit == '1' else '1' for bit in key)
+        assert segment_key(*levals) == key
+        name = segment_of(*levals)
+        assert name == SEGMENTS[key]['name']
+        names.add(name)
+    assert len(names) == 8, '8 个分群的名字不能重复'
+
+    # 两个极端，顺便把中文名钉死，防止以后改错方向
+    assert segment_of('3', '3', '3') == '重要价值客户'
+    assert segment_of('1', '1', '1') == '一般挽留客户'
+    assert segment_of('1', '3', '3') == '重要唤回客户'
+
+
+def test_rfm_table_carries_segment_and_summary():
+    """表格每行带分群，meta 里带 8 行汇总（人数合计 = 客户数，占比 ≤ 100）"""
+    rows = []
+    for i in range(1, 7):
+        # 让 R/F/M 三个维度都拉开差距，避免全挤在同一个分群
+        for j in range(i):
+            rows.append((f'C{i}', f'2025-12-{28 - i * 4:02d}', f'T{i}-{j}',
+                         100.0 * i))
+    rfm, meta = rfm_table(_customers([f'C{i}' for i in range(1, 7)]),
+                          _orders(rows), 'all')
+
+    assert {'segment', 'segment_color'} <= set(rfm.columns)
+    # 行级不变量：segment 必须等于按该行三个分档现算出来的结果
+    for row in rfm.itertuples():
+        assert row.segment == segment_of(row.r_leval, row.f_leval, row.m_leval)
+        assert row.segment in {info['name'] for info in SEGMENTS.values()}
+        assert row.segment_color == SEGMENTS[
+            segment_key(row.r_leval, row.f_leval, row.m_leval)]['color']
+
+    summary = meta['segments']
+    assert [s['key'] for s in summary] == SEGMENT_ORDER
+    assert sum(s['count'] for s in summary) == meta['customers']
+    # 每行占比各自保留 1 位小数，8 行相加会有 ±0.5 的凑整误差，不能写死 == 100
+    assert abs(sum(s['ratio'] for s in summary) - 100.0) <= 0.5
+    assert all({'name', 'color', 'action', 'count', 'ratio',
+                'r_band', 'f_band', 'm_band'} <= set(s) for s in summary)
