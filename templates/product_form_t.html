@@ -1,0 +1,65 @@
+{% extends 'layout_t.html' %}
+
+{% block body %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-header bg-white border-bottom pt-3 pb-3">
+                <h5 class="mb-0 fw-bold text-dark">
+                    {{ '添加产品' if mode == 'add' else '编辑产品' }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="post"
+                      action="{{ url_for('order.product_add') if mode == 'add'
+                                else url_for('order.product_update', product_id=form.get('product_id', '')) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    {% if mode == 'edit' %}
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">产品ID</label>
+                        <input type="text" class="form-control" value="{{ form.get('product_id', '') }}" disabled>
+                    </div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">产品名称</label>
+                        <input type="text" class="form-control" name="product_name" maxlength="128"
+                               value="{{ form.get('product_name', '') }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">产品分类</label>
+                        <input type="text" class="form-control" name="product_category" maxlength="64"
+                               value="{{ form.get('product_category', '') }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">单价 (PPU)</label>
+                        <div class="input-group">
+                            <span class="input-group-text">¥</span>
+                            <input type="number" class="form-control" name="ppu" step="0.01" min="0.01"
+                                   value="{{ form.get('ppu', '') }}" required>
+                        </div>
+                        {% if mode == 'edit' %}
+                        <div class="form-text">调价只影响以后的新订单，历史订单金额不变。</div>
+                        {% endif %}
+                    </div>
+                    {% if mode == 'edit' %}
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">状态</label>
+                        <select class="form-select" name="product_status">
+                            <option value="1" {% if (form.get('product_status', 1)|int) == 1 %}selected{% endif %}>在售</option>
+                            <option value="2" {% if (form.get('product_status', 1)|int) == 2 %}selected{% endif %}>下架</option>
+                        </select>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-dark px-4">保存</button>
+                        <a href="{{ url_for('order.product_list') }}" class="btn btn-outline-secondary">返回</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

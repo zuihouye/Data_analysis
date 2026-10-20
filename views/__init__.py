@@ -17,6 +17,9 @@ def create_app(config_object=Config):
     # 漏了这一行 -> session 不可用，所有写操作和 {{ csrf_token() }} 都会炸
     app.config.from_object(config_object)
 
+    # JSON 响应里的中文直接输出，不再转成 \uXXXX（方便在浏览器里看接口的错误信息）
+    app.json.ensure_ascii = False
+
     from . import auth,clear_input,ge_RFM,order,user,pay
     app.register_blueprint(pay.pay_blue)
     app.register_blueprint(auth.auth_blue)

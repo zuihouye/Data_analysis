@@ -1,0 +1,37 @@
+{% extends 'layout_t.html' %}
+
+{% block body %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-header bg-white border-bottom pt-3 pb-3">
+                <h5 class="mb-0 fw-bold text-dark">修改订单数量 #{{ order.order_id }}</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row text-secondary small mb-4">
+                    <dt class="col-sm-4">交易流水号</dt>
+                    <dd class="col-sm-8">{{ order.transaction_id }}</dd>
+                    <dt class="col-sm-4">单价（下单快照）</dt>
+                    <dd class="col-sm-8">¥ {{ "%.2f"|format(order.ppu) }}</dd>
+                    <dt class="col-sm-4">当前数量</dt>
+                    <dd class="col-sm-8">{{ order.quantity }}</dd>
+                </dl>
+                <form method="post"
+                      action="{{ url_for('order.order_update', order_id=order.order_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">新数量（1~999）</label>
+                        <input type="number" class="form-control" name="quantity"
+                               min="1" max="999" value="{{ order.quantity }}" required>
+                    </div>
+                    <div class="form-text mb-3">金额会按「下单快照单价 × 新数量」重新计算。</div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-dark px-4">保存</button>
+                        <a href="{{ url_for('order.order_list') }}" class="btn btn-outline-secondary">返回</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

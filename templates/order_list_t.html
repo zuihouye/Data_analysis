@@ -21,20 +21,24 @@
                 <table class="table table-hover align-middle mb-0" id="dataTable">
                     <thead class="table-light text-secondary">
                         <tr>
-                            <th class="ps-4" style="width: 160px;">交易ID</th>
-                            <th style="width: 120px;">订单日期</th>
-                            <th style="width: 140px;">客户ID</th>
+                            <th class="ps-4" style="width: 90px;">订单号</th>
+                            <th style="width: 150px;">交易ID</th>
+                            <th style="width: 110px;">订单日期</th>
+                            <th style="width: 130px;">客户ID</th>
                             <th>产品名称</th>
-                            <th style="width: 90px;">数量</th>
-                            <th style="width: 110px;">单价</th>
-                            <th style="width: 130px;">金额</th>
-                            <th style="width: 100px;">操作</th>
+                            <th style="width: 70px;">数量</th>
+                            <th style="width: 100px;">单价</th>
+                            <th style="width: 110px;">金额</th>
+                            <th style="width: 100px;">状态</th>
+                            <th style="width: 150px;">支付时间</th>
+                            <th style="width: 220px;">操作</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
                         {% for data in datalist %}
                         <tr>
-                            <td class="ps-4 text-secondary fw-medium">{{ data.transaction_id }}</td>
+                            <td class="ps-4 text-secondary fw-medium">#{{ data.order_id }}</td>
+                            <td class="text-secondary">{{ data.transaction_id }}</td>
                             <td>{{ data.order_date }}</td>
                             <td class="text-secondary">{{ data.customer_id }}</td>
                             <td class="fw-semibold text-dark">{{ data.product_name }}</td>
@@ -42,16 +46,53 @@
                             <td>¥ {{ "%.2f"|format(data.ppu) }}</td>
                             <td class="text-success fw-semibold">¥ {{ "%.2f"|format(data.amount) }}</td>
                             <td>
-                                <a href="/order/delete?order_id={{ data.transaction_id }}"
-                                   class="btn btn-sm btn-danger"
-                                   onclick="return confirm('确认删除该订单吗?')">
-                                    <i class="bi bi-trash"></i>
+                                {% if data.order_status == 1 %}
+                                <span class="badge text-bg-warning">待付款</span>
+                                {% elif data.order_status == 2 %}
+                                <span class="badge text-bg-success">已支付</span>
+                                {% else %}
+                                <span class="badge text-bg-secondary">已取消</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-secondary small">
+                                {% if data.paid_at %}{{ data.paid_at }}
+                                {% else %}<span class="text-muted">—</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if data.order_status == 1 %}
+                                <!-- 改数量：GET 打开修改页 -->
+                                <a href="/order/update?order_id={{ data.order_id }}"
+                                   class="btn btn-sm btn-outline-primary me-1" title="修改数量">
+                                    <i class="bi bi-pencil"></i>
                                 </a>
+                                <!-- 取消：POST + CSRF -->
+                                <form method="post" action="/order/delete" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="order_id" value="{{ data.order_id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger me-1"
+                                            onclick="return confirm('确认取消该订单吗？取消后不能恢复')"
+                                            title="取消订单">
+                                        <i class="bi bi-x-circle"></i>
+                                    </button>
+                                </form>
+                                {% if is_staff %}
+                                <form method="post" action="/pay/confirm/{{ data.order_id }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-success"
+                                            onclick="return confirm('确认已收到该订单的线下付款？')"
+                                            title="确认收款">
+                                        <i class="bi bi-check2-circle"></i> 收款
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
                             </td>
                         </tr>
                         {% else %}
                         <tr id="emptyRow">
-                            <td colspan="8" class="text-center text-secondary py-5">
+                            <td colspan="11" class="text-center text-secondary py-5">
                                 <i class="bi bi-inbox fs-2 d-block mb-2"></i>暂无订单数据
                             </td>
                         </tr>

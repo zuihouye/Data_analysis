@@ -19,6 +19,39 @@ DEFAULT_CSV = (Path(__file__).resolve().parent.parent
                / 'static' / 'archive' / 'raw_rfm_sales_transactions_(V2).csv')
 
 
+class BusinessDataGuardError(RuntimeError):
+    """系统内已有业务数据，全量导入会被拒绝（保护客户账号与财务订单）。"""
+
+
+# 任何一项 > 0 都说明"库里有 CSV 之外产生的数据"：
+#   1) role=0 的账号 = 有人注册过；
+#   2) customers 里出现非 Customer- 前缀 = 注册客户；
+#   3) products 里出现非 PROD- 前缀 = 员工手工加过商品；
+#   4) orders 里出现非 T 前缀 = 有网页/线下下单。
+_GUARD_SQL = '''
+    SELECT
+      (SELECT COUNT(*) FROM users     WHERE role = 0) AS customer_accounts,
+      (SELECT COUNT(*) FROM customers WHERE customer_id NOT LIKE 'Customer-%') AS web_customers,
+      (SELECT COUNT(*) FROM products  WHERE product_id  NOT LIKE 'PROD-%')     AS manual_products,
+      (SELECT COUNT(*) FROM orders    WHERE transaction_id NOT LIKE 'T%')      AS web_orders
+'''
+
+
+def ensure_import_safe(conn):
+    """在 DELETE 之前检查：库里有没有"导入会误删"的业务数据。
+
+    必须传调用方的 conn（同一个事务），保证"检查 → 删除 → 写入"是一体的。
+    只要有一项 > 0 就抛异常，让整个事务回滚 —— 宁可拒绝导入，也不删客户账号/财务订单。
+    """
+    row = conn.execute(text(_GUARD_SQL)).mappings().first()
+    details = {k: v for k, v in row.items() if v}
+    if details:
+        raise BusinessDataGuardError(
+            '检测到系统内已有业务数据（客户账号 / 注册客户 / 手工商品 / 网页订单），'
+            f'全量导入会删除它们，已中止：{details}。'
+            '请换一个新库导入，或先备份并清空业务数据。'
+        )
+
 def write_to_db(df, conn):
     """
     在调用方的事务中写库。
@@ -26,7 +59,14 @@ def write_to_db(df, conn):
     刻意不用 CREATE / TRUNCATE / RENAME 等 DDL，也刻意不碰 FOREIGN_KEY_CHECKS：
     它们都会隐式提交，让外层事务失去回滚能力。这里只用 DML（DELETE + INSERT），
     表结构一行不动，失败可完整回滚。
+    ...
+    【P2 新增】若检测到业务数据会抛 BusinessDataGuardError，事务回滚。
     """
+
+    # 【P2 新增】任何 DELETE 之前先做业务数据保护
+    ensure_import_safe(conn)
+
+
     customers_df = (df[['customer_id', 'region']]
                     .drop_duplicates(subset=['customer_id']))
     products_df = (df[['product_id', 'product_name', 'product_category', 'ppu']]

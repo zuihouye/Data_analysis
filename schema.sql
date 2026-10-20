@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS orders (
     ppu            DECIMAL(10, 2) NOT NULL,            -- 交易发生时的单价快照
     amount         DECIMAL(12, 2) NOT NULL,            -- 交易总金额
     order_status   TINYINT UNSIGNED NOT NULL DEFAULT 1, -- 状态 1:已下单,2:已支付,3:已取消
+    paid_at        DATETIME NULL,                       -- 线下收款确认时间
+    paid_by        INT NULL,                            -- 确认收款的员工 users.id（审计用，不建外键）
+
 
     CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (customer_id),
     CONSTRAINT fk_orders_product  FOREIGN KEY (product_id)  REFERENCES products  (product_id),
@@ -53,24 +56,24 @@ CREATE TABLE IF NOT EXISTS orders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单事实表';
 
 
--- 4. 后台账号表：登录这个系统的是内部员工（见 templates/login_t.html 的
---    "普通成员 / 管理员"），不是客户，所以刻意不建到 customers 的外键。
+-- 4. 账号表：员工（role 1/2）+ 客户（role 0）
 --
--- 为什么必须独立成表 —— 两者的数据生命周期互斥：
---   customers 来自 CSV 导入，是【全量快照】：/clear_input 会先 DELETE 再 INSERT。
---   users     来自用户手输，是【增量数据】：只增、只改自己那一条。
---
--- 混在一张表里会同时踩两个坑（都实测过）：
---   1. 账号存在 customers 上 —— 每导一次数据，就把所有人的密码和角色
---      冲成默认值（实测：password_hash 由哈希变成 ''）。
---   2. 给 users.customer_id 建指向 customers 的外键 —— 只要有人注册过，
---      导入就报 1451 Cannot delete or update a parent row，整个点不动。
+-- 为什么客户账号不放进 customers 表：
+--   customers 来自 CSV 导入，是【全量快照】：/clear_input 会先 DELETE 再 INSERT；
+--   账号是【增量数据】：只增、只改自己那一条。混在一起会冲掉密码。
+-- 为什么 users.customer_id 建外键：
+--   客户账号必须对应一条真实客户主数据（订单外键靠它）；
+--   代价是导入前必须做保护（utils/loader.py 的 ensure_import_safe）。
 CREATE TABLE IF NOT EXISTS users (
     id            INT AUTO_INCREMENT PRIMARY KEY,
-    phone         VARCHAR(32)  NOT NULL UNIQUE,        -- 手机号，登录标识（对应登录页的"手机号"）
-    username      VARCHAR(64)  NOT NULL,               -- 显示名（对应 layout_t.html 的"用户名"）
-    password_hash VARCHAR(255) NOT NULL,               -- werkzeug.security 生成的哈希，绝不存明文
-    role          TINYINT UNSIGNED NOT NULL DEFAULT 1, -- 角色 1:普通成员,2:管理员
+    phone         VARCHAR(32)  NOT NULL UNIQUE,        -- 手机号，登录标识
+    username      VARCHAR(64)  NOT NULL,               -- 显示名
+    password_hash VARCHAR(255) NOT NULL,               -- werkzeug.security 生成的哈希
+    role          TINYINT UNSIGNED NOT NULL DEFAULT 1, -- 角色 0:客户,1:普通成员,2:管理员
+    customer_id   VARCHAR(64)  NULL,                   -- 仅 role=0 的客户账号有值，员工为 NULL
     is_active     TINYINT UNSIGNED NOT NULL DEFAULT 1, -- 状态 1:启用,2:停用
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台账号表（员工）';
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_users_customer (customer_id),
+    CONSTRAINT fk_users_customer FOREIGN KEY (customer_id) REFERENCES customers (customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='账号表（员工 + 客户）';

@@ -22,12 +22,13 @@
 | 数据接入 | 读取原始交易 CSV，自动统一列名、去千分位、解析日期 | ✅ |
 | 数据质量校验 | 必填列缺失直接中止；重复交易号、金额不一致、异常值按阈值报告并过滤，结果以 JSON 报告返回 | ✅ |
 | 入库 | 单事务内 `DELETE` + `to_sql(append)`，任一步失败整体回滚；重复导入幂等 | ✅ |
-| 客户 / 订单 / 商品 | 列表查询；订单列表关联商品名称 | ✅ |
+| 客户 / 订单 / 商品 | 列表查询；订单列表关联商品名称；按角色过滤可见数据 | ✅ |
 | RFM 分析 | 按回看窗口计算 R/F/M 并分箱打分，输出 RFM 组合码，再折成 8 个经典客户分群（带运营动作）；支持近 3 / 6 / 12 个月 / 全部四种窗口切换 | ✅ |
-| 登录与权限 | 手机号 + 密码登录（werkzeug 哈希）、会话管理、CSRF 防护、普通成员 / 管理员分级 | ✅ |
+| 登录与权限 | 手机号 + 密码登录（werkzeug 哈希）、会话管理、CSRF 防护、客户 / 普通成员 / 管理员三档角色 | ✅ |
 | 支付 / 并发控制 | Redis 锁（token + TTL + Lua 原子释放）+ `@idempotent` 幂等；取消订单走条件 `UPDATE` 状态机，重复操作靠 `rowcount` 识别；发起支付为 `501` 占位 | ✅ 骨架 |
-| 客户 / 订单 / 商品增删改 | 7 个 CRUD 路由目前是空壳（返回 500），见「九、已知限制」 | ⬜ |
-| 测试 | pytest（58 条）：数据质量、事务原子性、外键约束、表结构契约、RFM 分箱与客户分群、路由层与安全（CSRF / 权限）、Redis 锁与状态机、幂等缓存 | ✅ |
+| 客户下单闭环 | 客户自助注册（`customers` + `users(role=0)` 双表事务）→ 浏览在售商品 → 下单 → 改数量 / 取消 → 员工「确认线下收款」（`1 → 2`）；已支付订单冻结，无退款（P1-B 不做） | ✅ |
+| CRUD 与软删除 | 客户注销 / 商品下架 / 订单取消都只改状态列（不物理 `DELETE`）；写接口分别挂 `@customer_required` / `@staff_required` / `@admin_required`，订单操作再做归属校验 | ✅ |
+| 测试 | pytest（85 条）：数据质量、事务原子性、外键约束、表结构契约、RFM 分箱与客户分群、路由层与安全（CSRF / 权限 / 越权）、Redis 锁与状态机、幂等缓存、P2 下单闭环 | ✅ |
 
 ---
 
@@ -159,6 +160,10 @@ flask --app app run --debug
 浏览器打开 `http://127.0.0.1:5000` → 跳转登录页 → 登录后在「数据分析 → 导入数据」载入示例 CSV
 （示例数据在 `static/archive/`），再进「数据分析 → RFM 分析」切换窗口查看分层结果。
 
+> 客户账号从 `/register` 自助注册（`users.role=0`，同一事务里同时写 `customers` 表）；
+> 员工 / 管理员账号用 `flask create_admin` 创建。想完整体验「下单 → 员工确认收款」，
+> 建议顺序是：`python docs/init_db.py --reset --yes` 得到干净库 → 管理员导入 CSV → 再注册客户下单。
+
 ### 6. 跑测试
 
 ```bash
@@ -169,7 +174,7 @@ pytest -v
 - Redis 相关的测试用 `db1` 且只操作 `idem:unittest:*` 前缀的键，跑完清干净，不会 `FLUSHDB`；
 - 本机没起 **MySQL** 或 **Redis** 时，依赖它们的集成用例会自动 skip（不是失败）：
   MySQL 不可用时是入库 / 路由 / 表结构契约那批，Redis 不可用时是锁 / 幂等两组。
-  所以 `skipped` 变多通常只是服务没起 —— 两个服务都在时才是完整的 55 passed。
+  所以 `skipped` 变多通常只是服务没起 —— 两个服务都在时才是完整的 **85 passed**。
 
 ---
 
@@ -181,35 +186,42 @@ customers (客户主数据)          products (商品主数据)
    region                          product_name / product_category
    cus_status                      ppu（当前单价） / product_status
         │                                │
+        │  (P2: users.customer_id FK)    │
         └──────────┬─────────────────────┘
                    ▼
                 orders (交易事实表)
                    order_id       PK  自增代理键
-                   transaction_id UNIQUE 业务流水号
+                   transaction_id UNIQUE 业务流水号（CSV: T… / Web: W…）
                    order_date / customer_id FK / product_id FK
                    quantity / ppu（成交时单价快照） / amount
                    order_status   支付状态机：1 已下单 / 2 已支付 / 3 已取消
+                   paid_at / paid_by   线下收款确认时间、操作员工（审计字段）
                    INDEX(order_date) INDEX(customer_id) INDEX(product_id)
 
-                users (后台账号表，与客户无关)
+                users (账号表：员工 / 管理员 + 客户)
                    id PK / phone UNIQUE / username / password_hash
-                   role（1 普通成员 / 2 管理员） / is_active / created_at
+                   role（0 客户 / 1 普通成员 / 2 管理员） / is_active / created_at
+                   customer_id（仅 role=0 有值，UNIQUE，FK → customers）
 ```
 
-四个刻意的设计决策，也都是面试可讲点：
+五个刻意的设计决策，也都是面试可讲点：
 
 1. **`orders.ppu` 是快照，不是外键引用。** `products.ppu` 是"当前价"，会随调价变化；
    订单必须记录成交当时的单价，否则历史订单金额会跟着调价漂移，财务对账就错了。
 2. **`orders` 用自增 `order_id` 作主键，`transaction_id` 只加 UNIQUE。** 业务流水号可能变长、
    可能来自外部系统，用它当主键会让所有外键跟着变宽；代理键 + 唯一约束是更稳的做法。
-3. **后台账号独立成 `users` 表，且不与 `customers` 建外键。** 两者的数据生命周期互斥：
-   `customers` 来自 CSV 全量重灌（先删后插），`users` 是手输的增量数据。
-   混在一起会出现"导一次数据把所有人的密码冲成默认值"；给 `users` 加指向 `customers`
-   的外键则会让导入直接报 1451 而点不动。系统里登录的是内部运营（有"管理员"身份），
-   不是客户 —— 这两张表本来就不该有关联。
+3. **账号表与客户主数据分开，但客户账号用 `customer_id` 关联主数据。** P0 阶段登录的是内部运营，
+   `users` 与 `customers` 无关；P2 加了客户自助注册后，`role=0` 的账号必须能定位到"是哪个客户"，
+   于是加了可空 + UNIQUE 的 `customer_id` 外键（员工为 NULL）。仍然不把密码放进 `customers`，
+   因为 `customers` 会被 CSV 全量重灌；重灌风险改由导入守卫 `ensure_import_safe()` 拦截，
+   而不是靠"不建外键"。
 4. **支付状态用 `order_status` 数字状态机，不用布尔 `is_paid`。** 布尔两态表达不了"已取消"，
    而且状态推进要靠条件 `UPDATE ... WHERE order_status = 1` + `rowcount` 判定，
    这样并发下"取消"和"支付"同时到达时，只会有一个成功，另一个拿到 0 行。
+5. **软删除复用业务状态列，不新增 `is_deleted`。** `cus_status` / `product_status` /
+   `order_status` 本来就是业务状态，再加一个"删除"标志会让所有查询多一个条件，且语义和
+   "注销 / 下架 / 取消"重复。删除客户 = `cus_status=2` + 停用账号；删除商品 = 下架；
+   删除订单 = 取消（财务凭证永不物理删）。
 
 ---
 
@@ -272,24 +284,35 @@ customers (客户主数据)          products (商品主数据)
 | GET | `/` | 跳转客户列表 | 登录 |
 | GET/POST | `/login` | 登录页 / 提交登录（表单字段 `mobile` / `pwd` / `csrf_token`） | 匿名 |
 | POST | `/logout` | 退出登录 | 登录 |
-| GET | `/customer/list` | 客户列表 | 登录 |
-| GET | `/order/list` | 订单列表（关联商品名） | 登录 |
-| GET | `/product/list` | 商品列表 | 登录 |
-| GET | `/ge_rfm?window=` | RFM 分析结果页（`window` 取 `3m` / `6m` / `12m` / `all`） | 登录 |
-| POST | `/clear_input` | 清空并重新导入交易数据 | **管理员** |
-| GET | `/pay/order/<order_id>` | 查询订单支付状态（`payable` 表示是否可支付） | 登录 |
-| POST | `/pay/prepay/<order_id>` | 发起支付：锁 + 幂等 + 状态校验是真的，**网关未接 → 固定 501** | 登录 + 幂等 |
-| POST | `/pay/cancel/<order_id>` | 取消未支付订单（`1 → 3`，条件 `UPDATE`，本阶段唯一真写库的支付类接口） | 登录 + 幂等 |
-| — | `/customer/update`、`/customer/delete`、`/product/add`、`/product/update`、`/product/delete`、`/order/update`、`/order/delete` | 空壳路由（`pass` / `return None` → 500），**尚未挂权限** | — |
+| GET | `/customer/list` | 客户列表（LEFT JOIN 账号状态） | **员工 / 管理员** |
+| GET/POST | `/customer/update` | 修改客户地区 | **员工 / 管理员** |
+| POST | `/customer/delete` | 软注销：`cus_status=2` + 停用关联账号 | **管理员** |
+| GET | `/order/list` | 订单列表（客户只看自己的；员工 / 管理员看全部） | 登录 |
+| GET/POST | `/order/create` | 客户下单（金额按 DB 单价计算；一次性表单 token 防重复提交） | **客户** |
+| GET/POST | `/order/update` | 修改数量（仅 `order_status=1`；客户限本人） | 登录 + 归属校验 |
+| POST | `/order/delete` | 取消订单（`1 → 3`，复用取消状态机） | 登录 + 归属校验 |
+| GET | `/product/list` | 商品列表（客户只看在售） | 登录 |
+| GET/POST | `/product/add` | 新增商品（`product_id` 自动生成 `SKU-` 前缀） | **员工 / 管理员** |
+| GET/POST | `/product/update` | 修改商品名称 / 分类 / 单价 / 上下架 | **员工 / 管理员** |
+| POST | `/product/delete` | 下架（`product_status=2`，历史订单保留） | **员工 / 管理员** |
+| GET/POST | `/register` | 客户自助注册（`customers` + `users(role=0)` 双表事务） | 匿名 |
+| GET / POST | `/login` / `/logout` | 登录 / 登出 | 匿名 / 登录 |
+| GET | `/ge_rfm?window=` | RFM 分析结果页（`window` 取 `3m` / `6m` / `12m` / `all`） | **员工 / 管理员** |
+| POST | `/clear_input` | 清空并重新导入交易数据（检测到业务数据会 409 拒绝） | **管理员** |
+| GET | `/pay/order/<order_id>` | 查询订单支付状态（`payable` 表示是否可支付） | 登录 + 归属校验 |
+| POST | `/pay/prepay/<order_id>` | 发起支付：锁 + 幂等 + 状态校验是真的，**网关未接 → 固定 501** | 登录 + 幂等 + 归属校验 |
+| POST | `/pay/cancel/<order_id>` | 取消未支付订单（`1 → 3`，条件 `UPDATE`） | 登录 + 幂等 + 归属校验 |
+| POST | `/pay/confirm/<order_id>` | 员工确认线下收款（`1 → 2`，写 `paid_at` / `paid_by`） | **员工 / 管理员** |
 
 写方法（POST / PUT / PATCH / DELETE）统一在 `before_app_request` 里校验 CSRF：
-浏览器表单走 `csrf_token` 字段，接口调用可放 `X-CSRF-Token` 头；均需同时带 `X-Request-Id`（幂等键）。
+浏览器表单走 `csrf_token` 字段，接口调用可放 `X-CSRF-Token` 头；`/pay/*` 三个接口还需带
+`X-Request-Id`（幂等键），其余 HTML 表单接口用 CSRF token + 一次性 `form_token` 即可。
 
 ---
 
 ## 八、测试与验证
 
-`pytest` 共 **58 条**，按文件分：
+`pytest` 共 **85 条**，按文件分：
 
 | 文件 | 条数 | 覆盖 |
 |---|---|---|
@@ -298,6 +321,7 @@ customers (客户主数据)          products (商品主数据)
 | `tests/test_import_db.py` | 18 | 临时库建表、事务原子性、外键约束、重复导入、表结构契约、路由与安全（登录跳转 / 管理员校验 / CSRF） |
 | `tests/test_lock.py` | 7 | 互斥、token 校验、TTL 续期、放锁、锁忙异常、条件 `UPDATE` 的 `rowcount` |
 | `tests/test_idempotent.py` | 7 | 2xx 写缓存 / 重放、非 JSON 不缓存、状态码保留、缓存损坏降级、旧格式兼容、缺 request_id |
+| `tests/test_p2_crud.py` | 27 | P2 下单闭环：客户注册 / 下单 / 改数量 / 取消、三档角色权限、订单归属（防 IDOR）、软删除、员工确认收款、导入守卫、CSRF 与表单参数校验 |
 
 另外做过 9 项针对**真实 Redis** 的手工验证（锁互斥、token 不匹配不误删、`PTTL` 续期、
 TTL 到期自动失效、`SCRIPT FLUSH` 后 `EVALSHA` 自动回退重载、8 线程并发临界区最多 1 人），
@@ -309,9 +333,11 @@ TTL 到期自动失效、`SCRIPT FLUSH` 后 `EVALSHA` 自动回退重载、8 线
 
 按优先级：
 
-- [ ] **7 个 CRUD 空壳**：`/customer/update|delete`、`/product/add|update|delete`、`/order/update|delete`
-      目前是空壳（`pass` / `return None` → 500），且**没挂 `@login_required`** ——
-      补 CRUD 的第一步就是先补权限。删除客户会撞上外键约束，计划改成**软删除**（订单是财务凭证，不做物理删除）。
+- [x] **7 个 CRUD 空壳**：已落地（2026-10-20）—— 7 个空壳接口全部实现，删除类操作改为软删除
+      （`cus_status` / `product_status` / `order_status`），订单操作带归属校验；客户注册 / 下单 /
+      员工确认收款闭环打通；全套 85 条测试全绿。代码手册见 [`docs/P2-实施手册-00-索引.md`](docs/P2-实施手册-00-索引.md)。
+- [ ] **退款流程**：已支付订单当前冻结、无退款 —— 属于 P1-B 明确不做的范围，见 P1 文档第 11 节；
+      真要做需要状态机加「退款中 / 已退款」并写流水表，属于另一个完整功能。
 - [x] **客户分层命名**：已落地 —— 三维各 3 档折成高/低两档（3 = 高），2×2×2 落回经典 8 分群
       （重要价值 / 重要唤回 / 重要深耕 / 重要挽留 / 一般价值 / 一般保持 / 一般发展 / 一般挽留），
       页面带「分群明细与运营动作」面板，表格每行带分群徽章。
@@ -333,4 +359,5 @@ TTL 到期自动失效、`SCRIPT FLUSH` 后 `EVALSHA` 自动回退重载、8 线
 | [`docs/02-面试题库.md`](docs/02-面试题库.md) | 结合本项目的面试问答准备（项目类 + 八股 + HR） |
 | [`docs/P0-2-登录权限与CSRF.md`](docs/P0-2-登录权限与CSRF.md) | 登录 / 会话 / 权限分级 / CSRF 的实现与踩坑记录 |
 | [`docs/P1-支付与Redis锁.md`](docs/P1-支付与Redis锁.md) | 锁 / 幂等 / 状态机的完整实现、端到端时序、生产注意与**面试口径**（首页有一页速查图） |
+| [`docs/P2-实施手册-00-索引.md`](docs/P2-实施手册-00-索引.md) | P2 全套实施手册：01 总览与库表 / 02 认证与订单核心 / 03 页面路由与导入保护 / 04 模板 / 05 测试与面试口径，附 `P2-migrate.sql` |
 | [`docs/00-使用说明.md`](docs/00-使用说明.md) | 本地环境与改造步骤说明 |

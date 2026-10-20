@@ -11,14 +11,17 @@
 """
 
 import logging
+import re
 import secrets
 import hmac
+import uuid
 from functools import wraps
 from urllib.parse import urlsplit
 
-from flask import Blueprint, session, request, current_app, redirect, url_for,render_template
+from flask import Blueprint, session, request, current_app, redirect, url_for, render_template
 from sqlalchemy import text
-from werkzeug.security import check_password_hash
+from sqlalchemy.exc import IntegrityError          # 新增：手机号 UNIQUE 冲突时捕获
+from werkzeug.security import check_password_hash, generate_password_hash  # 新增 generate_password_hash
 
 from utils import db
 
@@ -26,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 auth_blue = Blueprint("auth", __name__)
 
-ROLE_NAMES = {1: '普通成员', 2: '管理员'}
+ROLE_NAMES = {0: '客户', 1: '普通成员', 2: '管理员'}
 
 # ------------------------------------------------------------------ 会话
 def current_user():
@@ -41,6 +44,7 @@ def current_user():
         'phone': session.get("phone",''),
         'role': role,
         'role_name': ROLE_NAMES.get(role, '未知'),
+        'customer_id': session.get("customer_id"),
     }
 
 def _save_login(row):
@@ -58,6 +62,10 @@ def _save_login(row):
     session["phone"] = row['phone']
     session["role"] = row['role']
     session["_csrf_token"] = secrets.token_urlsafe(32)  # 显式轮换，由下一个页面渲染给浏览器
+    # SQLAlchemy 2.x 的 Row 没有 .get()，用 keys() 判断列是否存在；
+    # 员工账号没有 customer_id 列值（NULL），这里存 None，客户账号存客户主数据 ID
+    session["customer_id"] = (row["customer_id"]
+                              if "customer_id" in row.keys() else None)
     session.permanent = True
 
 # ------------------------------------------------------------------ CSRF
@@ -113,6 +121,48 @@ def admin_required(view):
         return view(*args, **kwargs)
     return warpper
 
+def staff_required(view):
+    """员工及以上（role 1/2）。内部已含未登录判断，不需要再叠 @login_required。
+
+    商品维护、订单/客户管理、确认收款都用它。
+    想收紧成"只有管理员能改商品"，把对应路由的 @staff_required 换成 @admin_required 即可。
+    """
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for('auth.login', next=_current_target()))
+        if session.get("role") not in (1, 2):
+            logger.warning('越权访问被拦截（需要员工）: user=%s role=%s %s',
+                           session.get('user_id'), session.get('role'), request.path)
+            return '需要员工或管理员权限。', 403
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def customer_required(view):
+    """仅客户（role=0）。下单页用。
+
+    额外要求 session 里有 customer_id：角色是客户却没有客户主数据，
+    说明数据不完整（比如手工插了一条 role=0 的 users），宁可 403 也不让它下单。
+    """
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for('auth.login', next=_current_target()))
+        if session.get("role") != 0 or not session.get("customer_id"):
+            logger.warning('越权访问被拦截（需要客户）: user=%s role=%s %s',
+                           session.get('user_id'), session.get('role'), request.path)
+            return '该页面仅客户可用。', 403
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def _home_page(role):
+    """登录/注册后的落地页：客户去商品页，员工去客户管理页。"""
+    if role == 0:
+        return url_for('order.product_list')
+    return url_for('user.customer_list')
+
 # ------------------------------------------------------------- 登录 / 登出
 def _current_target():
     """当前请求的站内路径（带查询串），登录后跳回来用。"""
@@ -132,7 +182,7 @@ def _safe_next():
 @auth_blue.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get("user_id"):
-        return redirect(_safe_next() or url_for("user.customer_list"))
+        return redirect(_safe_next() or _home_page(session.get("role",1)))
 
     if request.method == "POST":
         # 登录页的表单名是 mobile / pwd，和 users 表的 phone / password_hash 不同名，这里做映射
@@ -143,7 +193,7 @@ def login():
         if phone and password:
             with db.engine.connect() as conn:
                 row = conn.execute(text(
-                    'SELECT id, phone, username, password_hash, role, is_active '
+                    'SELECT id, phone, username, password_hash, role, is_active,customer_id '
                     'FROM users WHERE phone = :phone'),{'phone': phone}).mappings().first()
 
         if row is None or not check_password_hash(row['password_hash'], password):
@@ -156,9 +206,66 @@ def login():
 
         _save_login(row)
         logger.info('登录成功: user_id=%s role=%s', row['id'], row['role'])
-        return redirect(_safe_next() or url_for("user.customer_list"))
+        return redirect(_safe_next() or _home_page(row['role']))
 
     return render_template('login_t.html')
+
+# 手机号：11 位、1 开头、第二位 3~9（够用即可；真实项目还要考虑 +86/国际号）
+PHONE_RE = re.compile(r'^1[3-9]\d{9}$')
+
+
+@auth_blue.route('/register', methods=['GET', 'POST'])
+def register():
+    """客户自助注册：一个事务里同时写 customers（主数据）和 users（登录账号）。
+    """
+    if session.get('user_id'):
+        return redirect(_home_page(session.get('role', 1)))
+
+    if request.method == 'POST':
+        phone = (request.form.get('phone') or '').strip()
+        username = (request.form.get('username') or '').strip()
+        region = (request.form.get('region') or '').strip()
+        password = request.form.get('pwd') or ''
+        password2 = request.form.get('pwd2') or ''
+
+        if not PHONE_RE.match(phone):
+            return render_template('register_t.html', error='请输入 11 位手机号'), 400
+        if not username or len(username) > 64:
+            return render_template('register_t.html', error='昵称不能为空且不超过 64 字'), 400
+        if not region:
+            return render_template('register_t.html', error='请填写所在地区'), 400
+        if len(password) < 8:
+            return render_template('register_t.html', error='密码至少 8 位'), 400
+        if password != password2:
+            return render_template('register_t.html', error='两次输入的密码不一致'), 400
+
+        customer_id = 'REG-' + uuid.uuid4().hex[:12]   # 与 CSV 的 Customer-xxx 区分开
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(text(
+                    'INSERT INTO customers (customer_id, region, cus_status) '
+                    'VALUES (:cid, :region, 1)'),
+                    {'cid': customer_id, 'region': region})
+                conn.execute(text(
+                    'INSERT INTO users (phone, username, password_hash, role, customer_id) '
+                    'VALUES (:phone, :username, :pwd, 0, :cid)'),
+                    {'phone': phone, 'username': username,
+                     'pwd': generate_password_hash(password), 'cid': customer_id})
+        except IntegrityError:
+            # 唯一键冲突 = 手机号已被注册（并发注册也拦得住）
+            logger.info('注册失败，手机号已存在: %s', phone)
+            return render_template('register_t.html', error='该手机号已注册，请直接登录'), 409
+
+        # 注册成功直接登录，省一次输入
+        with db.engine.connect() as conn:
+            row = conn.execute(text(
+                'SELECT id, phone, username, role, customer_id FROM users '
+                'WHERE phone = :phone'), {'phone': phone}).mappings().first()
+        _save_login(row)
+        logger.info('客户注册成功: user_id=%s customer_id=%s', row['id'], customer_id)
+        return redirect(url_for('order.product_list'))
+
+    return render_template('register_t.html')
 
 @auth_blue.route('/logout', methods=['POST'])
 def logout():

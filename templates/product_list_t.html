@@ -6,9 +6,11 @@
         <div class="card-header bg-white border-bottom pt-3 pb-3 d-flex justify-content-between align-items-center">
             <h5 class="mb-0 fw-bold text-dark">产品列表</h5>
             <div class="d-flex align-items-center gap-2">
+                {% if is_staff %}
                 <a class="btn btn-success px-3 rounded-2" href="/product/add">
                     <i class="bi bi-plus-circle me-1"></i>添加产品
                 </a>
+                {% endif %}
                 <label class="text-secondary small mb-0 ms-2">每页：</label>
                 <select class="form-select form-select-sm" id="pageSizeSelect" style="width: 80px;">
                     <option value="10">10</option>
@@ -24,11 +26,12 @@
                 <table class="table table-hover align-middle mb-0" id="dataTable">
                     <thead class="table-light text-secondary">
                         <tr>
-                            <th class="ps-4" style="width: 120px;">产品ID</th>
+                            <th class="ps-4" style="width: 150px;">产品ID</th>
                             <th>产品名称</th>
                             <th style="width: 160px;">产品分类</th>
-                            <th style="width: 120px;">单价 (PPU)</th>
-                            <th style="width: 140px;">操作</th>
+                            <th style="width: 110px;">单价 (PPU)</th>
+                            <th style="width: 100px;">状态</th>
+                            <th style="width: 240px;">操作</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
@@ -41,20 +44,40 @@
                             </td>
                             <td class="text-success fw-semibold">¥ {{ "%.2f"|format(product.ppu) }}</td>
                             <td>
+                                {% if product.product_status == 1 %}
+                                <span class="badge text-bg-success">在售</span>
+                                {% else %}
+                                <span class="badge text-bg-secondary">已下架</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if is_staff %}
                                 <a href="/product/update?product_id={{ product.product_id }}"
-                                   class="btn btn-sm btn-outline-primary me-1">
+                                   class="btn btn-sm btn-outline-primary me-1" title="编辑">
                                     <i class="bi bi-pencil"></i>
                                 </a>
-                                <a href="/product/delete?product_id={{ product.product_id }}"
-                                   class="btn btn-sm btn-danger"
-                                   onclick="return confirm('确认删除该产品吗?')">
-                                    <i class="bi bi-trash"></i>
+                                {% if product.product_status == 1 %}
+                                <form method="post" action="/product/delete" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('确认下架该产品吗？历史订单仍会保留')"
+                                            title="下架">
+                                        <i class="bi bi-arrow-down-circle"></i> 下架
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% else %}
+                                <a href="/order/create?product_id={{ product.product_id }}"
+                                   class="btn btn-sm btn-success">
+                                    <i class="bi bi-cart-plus me-1"></i>购买
                                 </a>
+                                {% endif %}
                             </td>
                         </tr>
                         {% else %}
                         <tr id="emptyRow">
-                            <td colspan="5" class="text-center text-secondary py-5">
+                            <td colspan="6" class="text-center text-secondary py-5">
                                 <i class="bi bi-inbox fs-2 d-block mb-2"></i>暂无产品数据
                             </td>
                         </tr>

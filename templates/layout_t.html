@@ -10,7 +10,7 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm py-3 border-bottom border-secondary">
   <div class="container">
     <!-- 1. 品牌名：白色加粗，突出Logo -->
-    <a class="navbar-brand fw-bold fs-4 text-white" href="#">xx订单平台</a>
+    <a class="navbar-brand fw-bold fs-4 text-white" href="/">xx订单平台</a>
 
     <!-- 2. 手机端折叠按钮 -->
     <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
@@ -22,31 +22,45 @@
 
       <!-- 左侧菜单组 -->
       <ul class="navbar-nav me-auto mb-2 mb-lg-0 gap-lg-3">
-        <li class="nav-item">
-          <a class="nav-link" href="/customer/list">客户管理</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="/order/list">订单管理</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="/product/list">产品管理</a>
-        </li>
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            数据分析
-          </a>
-          <ul class="dropdown-menu border-0 shadow rounded-3 mt-2">
-            <li><a class="dropdown-item" href="/ge_rfm"><i class="bi bi-graph-up me-2 text-primary"></i>RFM 分析</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><form method="post" action="/clear_input" class="m-0">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="dropdown-item">
-                        <i class="bi bi-upload me-2 text-success"></i>导入数据
-                    </button>
+        {% if current_user and current_user.role == 0 %}
+          <!-- 客户菜单：只有商品和订单 -->
+          <li class="nav-item">
+            <a class="nav-link" href="/product/list">商品中心</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/order/list">我的订单</a>
+          </li>
+        {% else %}
+          <!-- 员工 / 管理员菜单 -->
+          <li class="nav-item">
+            <a class="nav-link" href="/customer/list">客户管理</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/order/list">订单管理</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/product/list">产品管理</a>
+          </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button"
+               data-bs-toggle="dropdown" aria-expanded="false">数据分析</a>
+            <ul class="dropdown-menu border-0 shadow rounded-3 mt-2">
+              <li><a class="dropdown-item" href="/ge_rfm">
+                  <i class="bi bi-graph-up me-2 text-primary"></i>RFM 分析</a></li>
+              {% if current_user and current_user.role == 2 %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="/clear_input" class="m-0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="dropdown-item">
+                    <i class="bi bi-upload me-2 text-success"></i>导入数据
+                  </button>
                 </form>
-            </li>
-          </ul>
-        </li>
+              </li>
+              {% endif %}
+            </ul>
+          </li>
+        {% endif %}
       </ul>
 
       <!-- 右侧菜单组 -->
@@ -77,6 +91,17 @@
   </div>
 </nav>
 <div class="container mt-4 mb-5">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"
+                  aria-label="Close"></button>
+        </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
     {% block body %}
 
     {% endblock %}

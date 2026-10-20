@@ -21,9 +21,12 @@
                 <table class="table table-hover align-middle mb-0" id="dataTable">
                     <thead class="table-light text-secondary">
                         <tr>
-                            <th class="ps-4" style="width: 180px;">客户ID</th>
+                            <th class="ps-4" style="width: 200px;">客户ID</th>
                             <th>所在地区</th>
-                            <th style="width: 140px;">操作</th>
+                            <th style="width: 160px;">登录账号</th>
+                            <th style="width: 120px;">账号状态</th>
+                            <th style="width: 120px;">客户状态</th>
+                            <th style="width: 180px;">操作</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
@@ -31,21 +34,47 @@
                         <tr>
                             <td class="ps-4 text-secondary fw-medium">{{ customer.customer_id }}</td>
                             <td class="fw-semibold text-dark">{{ customer.region }}</td>
+                            <td class="text-secondary">
+                                {% if customer.phone %}{{ customer.phone }}
+                                {% else %}<span class="text-muted">未注册</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if customer.is_active == 1 %}
+                                <span class="badge text-bg-success">启用</span>
+                                {% elif customer.is_active == 2 %}
+                                <span class="badge text-bg-secondary">停用</span>
+                                {% else %}
+                                <span class="badge text-bg-light text-muted">无账号</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if customer.cus_status == 1 %}
+                                <span class="badge text-bg-success">正常</span>
+                                {% else %}
+                                <span class="badge text-bg-secondary">已注销</span>
+                                {% endif %}
+                            </td>
                             <td>
                                 <a href="/customer/update?customer_id={{ customer.customer_id }}"
-                                   class="btn btn-sm btn-outline-primary me-1">
+                                   class="btn btn-sm btn-outline-primary me-1" title="修改地区">
                                     <i class="bi bi-pencil"></i>
                                 </a>
-                                <a href="/customer/delete?customer_id={{ customer.customer_id }}"
-                                   class="btn btn-sm btn-danger"
-                                   onclick="return confirm('确认删除该客户吗?')">
-                                    <i class="bi bi-trash"></i>
-                                </a>
+                                {% if is_admin and customer.cus_status == 1 %}
+                                <form method="post" action="/customer/delete" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="customer_id" value="{{ customer.customer_id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('确认注销该客户吗？订单会保留，账号将被停用')"
+                                            title="注销客户">
+                                        <i class="bi bi-person-dash"></i> 注销
+                                    </button>
+                                </form>
+                                {% endif %}
                             </td>
                         </tr>
                         {% else %}
                         <tr id="emptyRow">
-                            <td colspan="3" class="text-center text-secondary py-5">
+                            <td colspan="6" class="text-center text-secondary py-5">
                                 <i class="bi bi-people fs-2 d-block mb-2"></i>暂无客户数据
                             </td>
                         </tr>

@@ -1,7 +1,7 @@
 import logging
 
 from flask import Blueprint, jsonify
-
+from utils.loader import BusinessDataGuardError
 from utils import loader
 from utils.quality import DataQualityError
 from .auth import admin_required
@@ -24,6 +24,12 @@ def clear_input():
             'status': 'error',
             'message': f'数据质量不达标，已中止导入：{exc}',
         }), 400
+    except BusinessDataGuardError as exc:
+        logger.warning('检测到业务数据，已拒绝全量导入: %s', exc)
+        return jsonify({
+            'status': 'error',
+            'message': str(exc),
+        }), 409
 
     # 日期转成字符串再序列化，否则 Flask 会输出 RFC 822 格式（Wed, 01 Jan 2025 ...）
     preview = df.head(20).copy()
