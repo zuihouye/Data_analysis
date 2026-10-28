@@ -238,26 +238,6 @@ customers (客户主数据)          products (商品主数据)
                    customer_id（仅 role=0 有值，UNIQUE，FK → customers）
 ```
 
-五个刻意的设计决策，也都是面试可讲点：
-
-1. **`orders.ppu` 是快照，不是外键引用。** `products.ppu` 是"当前价"，会随调价变化；
-   订单必须记录成交当时的单价，否则历史订单金额会跟着调价漂移，财务对账就错了。
-2. **`orders` 用自增 `order_id` 作主键，`transaction_id` 只加 UNIQUE。** 业务流水号可能变长、
-   可能来自外部系统，用它当主键会让所有外键跟着变宽；代理键 + 唯一约束是更稳的做法。
-3. **账号表与客户主数据分开，但客户账号用 `customer_id` 关联主数据。** P0 阶段登录的是内部运营，
-   `users` 与 `customers` 无关；P2 加了客户自助注册后，`role=0` 的账号必须能定位到"是哪个客户"，
-   于是加了可空 + UNIQUE 的 `customer_id` 外键（员工为 NULL）。仍然不把密码放进 `customers`，
-   因为 `customers` 会被 CSV 全量重灌；重灌风险改由导入守卫 `ensure_import_safe()` 拦截，
-   而不是靠"不建外键"。
-4. **支付状态用 `order_status` 数字状态机，不用布尔 `is_paid`。** 布尔两态表达不了"已取消"，
-   而且状态推进要靠条件 `UPDATE ... WHERE order_status = 1` + `rowcount` 判定，
-   这样并发下"取消"和"支付"同时到达时，只会有一个成功，另一个拿到 0 行。
-5. **软删除复用业务状态列，不新增 `is_deleted`。** `cus_status` / `product_status` /
-   `order_status` 本来就是业务状态，再加一个"删除"标志会让所有查询多一个条件，且语义和
-   "注销 / 下架 / 取消"重复。删除客户 = `cus_status=2` + 停用账号；删除商品 = 下架；
-   删除订单 = 取消（财务凭证永不物理删）。
-
----
 
 ## 六、RFM 计算口径
 
