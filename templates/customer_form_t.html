@@ -15,7 +15,7 @@
       </p>
     </div>
     <div class="pagehead__r">
-      <a class="btn btn--ghost" href="{{ url_for('user.customer_list') }}">返回客户列表</a>
+      <a class="btn btn--ghost" href="{{ url_for('user.customer_list', **ret) if ret else url_for('user.customer_list') }}">返回客户列表</a>
     </div>
   </div>
 </div>
@@ -31,6 +31,11 @@
     <div class="card__bd">
       <form method="post" action="{{ url_for('user.customer_update', customer_id=customer.customer_id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if ret %}
+        {% for k, v in ret.items() %}{% if v %}
+        <input type="hidden" name="{{ k }}" value="{{ v }}">
+        {% endif %}{% endfor %}
+        {% endif %}
         <div class="formrow">
           <div class="formfield formfield--full">
             <label for="region">所在地区<span class="req">*</span></label>
@@ -41,7 +46,7 @@
         </div>
         <div class="formactions">
           <button class="btn btn--primary" type="submit">保存</button>
-          <a class="btn btn--ghost" href="{{ url_for('user.customer_list') }}">取消</a>
+          <a class="btn btn--ghost" href="{{ url_for('user.customer_list', **ret) if ret else url_for('user.customer_list') }}">取消</a>
         </div>
       </form>
     </div>

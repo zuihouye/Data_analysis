@@ -1,17 +1,16 @@
 {% extends 'base.html' %}
+{% from 'partials/_pager.html' import pager, size_select %}
 
 {% block title %}{{ '产品管理' if is_staff else '商品中心' }} · xx订单平台{% endblock %}
 
 {% block pagehead %}
-{% set ns = namespace(on_sale=0) %}
-{% for p in datalist %}{% if p.product_status == 1 %}{% set ns.on_sale = ns.on_sale + 1 %}{% endif %}{% endfor %}
 <div class="pagehead" data-od-id="product-head">
   <div class="shell pagehead__in">
     <div class="pagehead__id">
       <div class="pagehead__t"><h1>{{ '产品管理' if is_staff else '商品中心' }}</h1></div>
       <p class="pagehead__meta">
-        共 {{ "{:,}".format(datalist|length) }} 个{{ '产品' if is_staff else '商品' }}
-        · {{ "{:,}".format(ns.on_sale) }} 个在售
+        共 {{ "{:,}".format(paging.total) }} 个{{ '产品' if is_staff else '商品' }}
+        · {{ "{:,}".format(on_sale) }} 个在售
         {% if not is_staff %}· 仅显示在售商品{% endif %}
       </p>
       <p class="pagehead__legend">
@@ -34,27 +33,54 @@
 {% endblock %}
 
 {% block body %}
-<section class="card" data-list
-         data-list-body="listBody" data-list-size="listSize"
-         data-list-info="listInfo" data-list-nav="listNav"
-         data-od-id="product-table">
+<section class="card" data-od-id="product-table">
   <div class="card__hd">
     <h2>{{ '产品' if is_staff else '商品' }}列表
-      <span class="card__note">{{ "{:,}".format(datalist|length) }} 个</span></h2>
-    {% if datalist %}
-    <span class="pager__size">
-      <label for="listSize">每页</label>
-      <select class="select" id="listSize">
-        <option value="10">10</option>
-        <option value="20" selected>20</option>
-        <option value="50">50</option>
-        <option value="100">100</option>
-      </select>
-    </span>
-    {% endif %}
+      <span class="card__note">{{ "{:,}".format(paging.total) }} 个</span></h2>
+    {{ size_select(paging, sizes, qs) }}
   </div>
 
-  {% if datalist %}
+  <form class="tblfilter" method="get" action="{{ url_for('order.product_list') }}" role="search">
+    <input type="hidden" name="size" value="{{ paging.size }}">
+    <div class="field tblfilter__grow">
+      <label class="field__label" for="fQ">关键词</label>
+      <input class="input" id="fQ" name="q" value="{{ filters.q }}" maxlength="50"
+             placeholder="产品 ID / 产品名称">
+    </div>
+    <div class="field">
+      <label class="field__label" for="fCategory">分类</label>
+      <select class="select" id="fCategory" name="category">
+        <option value=""{% if not filters.category %} selected{% endif %}>全部分类</option>
+        {% for cat in categories %}
+        <option value="{{ cat }}"{% if filters.category == cat %} selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if is_staff %}
+    <div class="field">
+      <label class="field__label" for="fStatus">状态</label>
+      <select class="select" id="fStatus" name="status">
+        {% for value, label in status_options %}
+        <option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="field">
+      <label class="field__label" for="fSort">排序</label>
+      <select class="select" id="fSort" name="sort">
+        {% for value, label in sort_options %}
+        <option value="{{ value }}"{% if filters.sort == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="tblfilter__actions">
+      <button class="btn btn--primary btn--sm" type="submit">筛选</button>
+      <a class="btn btn--ghost btn--sm" href="{{ url_for('order.product_list', size=paging.size) }}">重置</a>
+    </div>
+  </form>
+
+  {% if paging.total %}
   <div class="tblwrap">
     <table class="tbl">
       <thead>
@@ -67,8 +93,8 @@
           <th>操作</th>
         </tr>
       </thead>
-      <tbody id="listBody">
-        {% for p in datalist %}
+      <tbody>
+        {% for p in items %}
         <tr>
           <td class="num" data-l="产品 ID">{{ p.product_id }}</td>
           <td data-l="产品名称">{{ p.product_name }}</td>
@@ -89,12 +115,15 @@
             <div class="actions">
               {% if is_staff %}
               <a class="btn btn--ghost btn--sm"
-                 href="{{ url_for('order.product_update', product_id=p.product_id) }}">编辑</a>
+                 href="{{ url_for('order.product_update', product_id=p.product_id, **keep) }}">编辑</a>
               {% if p.product_status == 1 %}
               <form method="post" action="{{ url_for('order.product_delete') }}"
                     onsubmit="return confirm('确认下架该产品吗？历史订单仍会保留');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="product_id" value="{{ p.product_id }}">
+                {% for k, v in keep.items() %}
+                <input type="hidden" name="{{ k }}" value="{{ v }}">
+                {% endfor %}
                 <button class="btn btn--danger btn--sm" type="submit">下架</button>
               </form>
               {% endif %}
@@ -109,23 +138,21 @@
       </tbody>
     </table>
   </div>
-  <div class="pager">
-    <span class="pager__info" id="listInfo"></span>
-    <div class="pager__nav" id="listNav" role="navigation" aria-label="分页"></div>
-  </div>
+  {% if paging.pages > 1 %}{{ pager(paging, 'order.product_list', qs) }}{% endif %}
   {% else %}
   <div class="empty">
     <svg class="empty__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M12 3 20.5 7.8v8.4L12 21 3.5 16.2V7.8z"/><path d="M3.5 7.8 12 12.6l8.5-4.8"/><path d="M12 12.6V21"/>
     </svg>
+    {% if filters.q or filters.category or filters.status %}
+    <strong>没有符合条件的产品</strong>
+    <span>换个关键词或条件试试，或<a href="{{ url_for('order.product_list', size=paging.size) }}">清除筛选条件</a>。</span>
+    {% else %}
     <strong>暂无产品数据</strong>
     <span>{% if is_staff %}点右上角「添加产品」建第一条商品记录。{% else %}当前没有在售商品，请稍后再来看看。{% endif %}</span>
+    {% endif %}
   </div>
   {% endif %}
 </section>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/list.js') }}"></script>
 {% endblock %}

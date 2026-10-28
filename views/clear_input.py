@@ -1,6 +1,6 @@
 import logging
 
-from flask import Blueprint, jsonify, render_template
+from flask import Blueprint, jsonify, render_template, request
 from sqlalchemy import text
 
 from utils import db, loader
@@ -29,6 +29,18 @@ def _db_counts():
         return None
 
 
+def _guard_counts():
+    """导入页展示用：库里"会被导入误删"的业务数据计数。
+
+    读不到时返回 None —— 页面要能打开，不能因为查询失败就 500。
+    """
+    try:
+        return loader.business_data_counts()
+    except Exception as exc:  # noqa: BLE001 - 展示页容错
+        logger.warning('读取业务数据计数失败: %s', exc)
+        return None
+
+
 @ci_blue.route('/import')
 @admin_required
 def import_page():
@@ -36,7 +48,8 @@ def import_page():
     return render_template('import_t.html',
                            csv_path=str(DEFAULT_CSV),
                            csv_exists=DEFAULT_CSV.exists(),
-                           db_counts=_db_counts())
+                           db_counts=_db_counts(),
+                           guard_counts=_guard_counts())
 
 
 # 安全层已补齐：
@@ -45,8 +58,11 @@ def import_page():
 @ci_blue.route('/clear_input', methods=['POST'])
 @admin_required
 def clear_input():
+    # 「清空并重建」是显式授权：前端要输入确认文字后才会带上这个字段
+    payload = request.get_json(silent=True) or {}
+    force_clear = bool(payload.get('force_clear')) or request.form.get('force_clear') == '1'
     try:
-        df, report = loader.process_and_import()
+        df, report = loader.process_and_import(force_clear=force_clear)
     except DataQualityError as exc:
         logger.warning('数据质量不达标，已中止导入: %s', exc)
         return jsonify({
@@ -58,6 +74,7 @@ def clear_input():
         return jsonify({
             'status': 'error',
             'message': str(exc),
+            'guard_counts': _guard_counts(),
         }), 409
 
     # 日期转成字符串再序列化，否则 Flask 会输出 RFC 822 格式（Wed, 01 Jan 2025 ...）

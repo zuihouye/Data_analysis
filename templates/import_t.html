@@ -11,8 +11,9 @@
         <span>数据来源：Kaggle 公开销售数据集</span>
       </div>
       <div class="pagehead__legend">
-        导入会先清空 customers / products / orders 三张表，再在一个事务里整批写入；
-        历史流水没有真实支付确认时间，统一按已支付立账，支付时间显示「—」。
+        导入会整表重建 customers / products / orders 三张表，再在一个事务里整批写入。
+        若库中已有页面产生的业务数据（客户账号 / 注册客户 / 手工商品 / 网页订单），默认会拒绝导入以防误删；
+        确认要覆盖时，可用下方「清空并重建」显式授权。
       </div>
     </div>
     <div class="pagehead__r">
@@ -62,6 +63,40 @@
           将清空并重建三张业务表；写库前会做数据质量校验与业务数据保护检查
         </span>
       </div>
+
+      {% set guard_total = (guard_counts.customer_accounts + guard_counts.web_customers
+                            + guard_counts.manual_products + guard_counts.web_orders)
+                           if guard_counts else 0 %}
+      {% if guard_total %}
+      <div class="forcebox" id="forceZone">
+        <div class="forcebox__hd">
+          <strong>库内有业务数据，直接导入会被拦截</strong>
+          <span class="badge badge--warn">需先确认</span>
+        </div>
+        <p>
+          客户账号 {{ guard_counts.customer_accounts }} 个 ·
+          注册客户 {{ guard_counts.web_customers }} 个 ·
+          手工商品 {{ guard_counts.manual_products }} 个 ·
+          网页订单 {{ guard_counts.web_orders }} 笔。
+        </p>
+        <p>
+          「清空并重建」会删除上述数据以及全部客户、商品、订单；
+          员工与管理员账号会保留（仅解除客户档案绑定），客户账号会被一并删除。此操作不可撤销。
+        </p>
+        <div class="formrow">
+          <div class="formfield">
+            <label class="field__label" for="forceWord">二次确认：输入「清空」两个字</label>
+            <input class="input" id="forceWord" type="text" autocomplete="off"
+                   placeholder="清空" {% if not csv_exists %}disabled{% endif %}>
+          </div>
+        </div>
+        <div class="formactions">
+          <button type="button" class="btn btn--danger" id="forceBtn"
+                  {% if not csv_exists %}disabled{% endif %}>清空业务数据并导入</button>
+          <span class="hint" id="forceHint">输入正确后按钮才会启用</span>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </section>
 

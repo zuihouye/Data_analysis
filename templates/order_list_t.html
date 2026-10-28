@@ -1,23 +1,18 @@
 {% extends 'base.html' %}
+{% from 'partials/_pager.html' import pager, size_select %}
 
 {% block title %}{{ '订单管理' if is_staff else '我的订单' }} · xx订单平台{% endblock %}
 
 {% block pagehead %}
-{% set ns = namespace(pending=0, paid=0, cancelled=0) %}
-{% for o in datalist %}
-  {% if o.order_status == 1 %}{% set ns.pending = ns.pending + 1 %}
-  {% elif o.order_status == 2 %}{% set ns.paid = ns.paid + 1 %}
-  {% else %}{% set ns.cancelled = ns.cancelled + 1 %}{% endif %}
-{% endfor %}
 <div class="pagehead" data-od-id="order-head">
   <div class="shell pagehead__in">
     <div class="pagehead__id">
       <div class="pagehead__t"><h1>{{ '订单管理' if is_staff else '我的订单' }}</h1></div>
       <p class="pagehead__meta">
-        共 {{ "{:,}".format(datalist|length) }} 笔订单
-        · 待付款 {{ "{:,}".format(ns.pending) }}
-        · 已支付 {{ "{:,}".format(ns.paid) }}
-        · 已取消 {{ "{:,}".format(ns.cancelled) }}
+        共 {{ "{:,}".format(paging.total) }} 笔订单
+        · 待付款 {{ "{:,}".format(stats[1]) }}
+        · 已支付 {{ "{:,}".format(stats[2]) }}
+        · 已取消 {{ "{:,}".format(stats[3]) }}
       </p>
       <p class="pagehead__legend">
         {% if is_staff %}
@@ -38,26 +33,42 @@
 {% endblock %}
 
 {% block body %}
-<section class="card" data-list
-         data-list-body="listBody" data-list-size="listSize"
-         data-list-info="listInfo" data-list-nav="listNav"
-         data-od-id="order-table">
+<section class="card" data-od-id="order-table">
   <div class="card__hd">
-    <h2>订单列表 <span class="card__note">{{ "{:,}".format(datalist|length) }} 笔</span></h2>
-    {% if datalist %}
-    <span class="pager__size">
-      <label for="listSize">每页</label>
-      <select class="select" id="listSize">
-        <option value="10">10</option>
-        <option value="20" selected>20</option>
-        <option value="50">50</option>
-        <option value="100">100</option>
-      </select>
-    </span>
-    {% endif %}
+    <h2>订单列表 <span class="card__note">{{ "{:,}".format(paging.total) }} 笔</span></h2>
+    {{ size_select(paging, sizes, qs) }}
   </div>
 
-  {% if datalist %}
+  <form class="tblfilter" method="get" action="{{ url_for('order.order_list') }}" role="search">
+    <input type="hidden" name="size" value="{{ paging.size }}">
+    <div class="field tblfilter__grow">
+      <label class="field__label" for="fQ">关键词</label>
+      <input class="input" id="fQ" name="q" value="{{ filters.q }}" maxlength="50"
+             placeholder="订单号 / 交易流水号 / 客户 ID / 产品名称">
+    </div>
+    <div class="field">
+      <label class="field__label" for="fStatus">状态</label>
+      <select class="select" id="fStatus" name="status">
+        {% for value, label in status_options %}
+        <option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label class="field__label" for="fSort">排序</label>
+      <select class="select" id="fSort" name="sort">
+        {% for value, label in sort_options %}
+        <option value="{{ value }}"{% if filters.sort == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="tblfilter__actions">
+      <button class="btn btn--primary btn--sm" type="submit">筛选</button>
+      <a class="btn btn--ghost btn--sm" href="{{ url_for('order.order_list', size=paging.size) }}">重置</a>
+    </div>
+  </form>
+
+  {% if paging.total %}
   <div class="tblwrap tblwrap--scroll">
     <table class="tbl">
       <thead>
@@ -75,8 +86,8 @@
           <th>操作</th>
         </tr>
       </thead>
-      <tbody id="listBody">
-        {% for o in datalist %}
+      <tbody>
+        {% for o in items %}
         <tr>
           <td class="num" data-l="订单号">#{{ o.order_id }}</td>
           <td class="num" data-l="交易 ID">{{ o.transaction_id }}</td>
@@ -100,17 +111,23 @@
             <div class="actions">
               {% if o.order_status == 1 %}
               <a class="btn btn--ghost btn--sm"
-                 href="{{ url_for('order.order_update', order_id=o.order_id) }}">改数量</a>
+                 href="{{ url_for('order.order_update', order_id=o.order_id, **keep) }}">改数量</a>
               <form method="post" action="{{ url_for('order.order_delete') }}"
                     onsubmit="return confirm('确认取消该订单吗？取消后不能恢复');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="order_id" value="{{ o.order_id }}">
+                {% for k, v in keep.items() %}
+                <input type="hidden" name="{{ k }}" value="{{ v }}">
+                {% endfor %}
                 <button class="btn btn--danger btn--sm" type="submit">取消</button>
               </form>
               {% if is_staff %}
               <form method="post" action="{{ url_for('pay.confirm', order_id=o.order_id) }}"
                     onsubmit="return confirm('确认已收到该订单的线下付款？');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% for k, v in keep.items() %}
+                <input type="hidden" name="{{ k }}" value="{{ v }}">
+                {% endfor %}
                 <button class="btn btn--primary btn--sm" type="submit">确认收款</button>
               </form>
               {% endif %}
@@ -124,23 +141,21 @@
       </tbody>
     </table>
   </div>
-  <div class="pager">
-    <span class="pager__info" id="listInfo"></span>
-    <div class="pager__nav" id="listNav" role="navigation" aria-label="分页"></div>
-  </div>
+  {% if paging.pages > 1 %}{{ pager(paging, 'order.order_list', qs) }}{% endif %}
   {% else %}
   <div class="empty">
     <svg class="empty__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h6"/><path d="M9 16h6"/>
     </svg>
+    {% if filters.q or filters.status %}
+    <strong>没有符合条件的订单</strong>
+    <span>换个关键词或状态试试，或<a href="{{ url_for('order.order_list', size=paging.size) }}">清除筛选条件</a>。</span>
+    {% else %}
     <strong>暂无订单数据</strong>
     <span>{% if is_staff %}还没有客户下单，或订单已被清理。{% else %}去「商品中心」挑一件商品，下单后这里会出现记录。{% endif %}</span>
+    {% endif %}
   </div>
   {% endif %}
 </section>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/list.js') }}"></script>
 {% endblock %}

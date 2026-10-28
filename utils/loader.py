@@ -37,6 +37,19 @@ _GUARD_SQL = '''
 '''
 
 
+def business_data_counts(conn=None):
+    """返回四类"导入会误删"的业务数据计数，供导入页展示与二次确认。
+
+    conn 为空时自己开一个只读连接（页面渲染用）；调用方在事务里时应传同一个 conn。
+    """
+    if conn is None:
+        with db.engine.connect() as own:
+            row = own.execute(text(_GUARD_SQL)).mappings().first()
+    else:
+        row = conn.execute(text(_GUARD_SQL)).mappings().first()
+    return {k: int(v or 0) for k, v in row.items()}
+
+
 def ensure_import_safe(conn):
     """在 DELETE 之前检查：库里有没有"导入会误删"的业务数据。
 
@@ -49,10 +62,26 @@ def ensure_import_safe(conn):
         raise BusinessDataGuardError(
             '检测到系统内已有业务数据（客户账号 / 注册客户 / 手工商品 / 网页订单），'
             f'全量导入会删除它们，已中止：{details}。'
-            '请换一个新库导入，或先备份并清空业务数据。'
+            '可在导入页使用「清空并重建」（会删除客户账号、商品与订单，保留员工/管理员账号），'
+            '或换一个新库导入。'
         )
 
-def write_to_db(df, conn):
+
+def _clear_business_data(conn):
+    """「清空并重建」的清理步骤，只在 force_clear=True 时调用。
+
+    顺序有讲究：
+      1. 先把 users 与 customers 的外键绑定解开，否则后面 DELETE customers 会报 1451；
+      2. 客户账号（role=0）连人带档案一起删；员工/管理员账号保留，只解绑客户档案；
+      3. 按子表 -> 父表顺序删 orders -> customers -> products，不需要关外键检查。
+    """
+    conn.execute(text(
+        'UPDATE users SET customer_id = NULL WHERE customer_id IS NOT NULL'))
+    conn.execute(text('DELETE FROM users WHERE role = 0'))
+    for table in ('orders', 'customers', 'products'):
+        conn.execute(text(f'DELETE FROM {table}'))
+
+def write_to_db(df, conn, force_clear=False):
     """
     在调用方的事务中写库。
 
@@ -61,10 +90,14 @@ def write_to_db(df, conn):
     表结构一行不动，失败可完整回滚。
     ...
     【P2 新增】若检测到业务数据会抛 BusinessDataGuardError，事务回滚。
+    【本次新增】force_clear=True 时跳过保护检查，改为显式清空业务数据后再导入
+    （导入页「清空并重建」按钮，需要前端二次确认）。
     """
 
-    # 【P2 新增】任何 DELETE 之前先做业务数据保护
-    ensure_import_safe(conn)
+    if force_clear:
+        _clear_business_data(conn)
+    else:
+        ensure_import_safe(conn)
 
 
     customers_df = (df[['customer_id', 'region']]
@@ -96,11 +129,13 @@ def write_to_db(df, conn):
 def process_and_import(csv_path=None,
                        dedupe_business_duplicates=True,
                        max_drop_rate=0.2,
-                       db_engine=None):
+                       db_engine=None,
+                       force_clear=False):
     """
     读取 CSV -> 清洗 -> 校验 -> 事务内写入。
 
     返回 (df, report)；数据质量不达标时抛 DataQualityError，此时数据库保持原样。
+    force_clear=True 表示已获得「清空并重建」的显式授权（跳过业务数据保护）。
 
     db_engine 仅用于测试时指向临时库，生产调用不要传。
     """
@@ -129,7 +164,7 @@ def process_and_import(csv_path=None,
     # 注意用 db.engine 而不是 from utils.db import engine：
     # 前者让测试可以 monkeypatch utils.db.engine 把写入重定向到临时库
     with (db_engine or db.engine).begin() as conn:   # 整个写入是一个事务
-        write_to_db(df, conn)
+        write_to_db(df, conn, force_clear=force_clear)
 
     logger.info('导入完成: %d 行', len(df))
     return df, report

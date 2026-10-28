@@ -19,7 +19,7 @@
       </p>
     </div>
     <div class="pagehead__r">
-      <a class="btn btn--ghost" href="{{ url_for('order.product_list') }}">返回产品列表</a>
+      <a class="btn btn--ghost" href="{{ url_for('order.product_list', **ret) if ret else url_for('order.product_list') }}">返回产品列表</a>
     </div>
   </div>
 </div>
@@ -37,6 +37,11 @@
             action="{{ url_for('order.product_add') if mode == 'add'
                       else url_for('order.product_update', product_id=form.get('product_id', '')) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if ret %}
+        {% for k, v in ret.items() %}{% if v %}
+        <input type="hidden" name="{{ k }}" value="{{ v }}">
+        {% endif %}{% endfor %}
+        {% endif %}
 
         <div class="formrow">
           {% if mode == 'edit' %}
@@ -85,7 +90,7 @@
 
         <div class="formactions">
           <button class="btn btn--primary" type="submit">保存</button>
-          <a class="btn btn--ghost" href="{{ url_for('order.product_list') }}">取消</a>
+          <a class="btn btn--ghost" href="{{ url_for('order.product_list', **ret) if ret else url_for('order.product_list') }}">取消</a>
         </div>
       </form>
     </div>

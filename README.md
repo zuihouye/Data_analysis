@@ -22,13 +22,13 @@
 | 数据接入 | 读取原始交易 CSV，自动统一列名、去千分位、解析日期 | ✅ |
 | 数据质量校验 | 必填列缺失直接中止；重复交易号、金额不一致、异常值按阈值报告并过滤，结果以 JSON 报告返回 | ✅ |
 | 入库 | 单事务内 `DELETE` + `to_sql(append)`，任一步失败整体回滚；重复导入幂等 | ✅ |
-| 客户 / 订单 / 商品 | 列表查询；订单列表关联商品名称；按角色过滤可见数据 | ✅ |
+| 客户 / 订单 / 商品 | 列表查询；订单列表关联商品名称；按角色过滤可见数据；服务端分页（`?page=&size=`，默认每页 20）；关键词 / 状态 / 排序筛选（条件全在 URL 上，翻页与行内动作自动保留） | ✅ |
 | RFM 分析 | 按回看窗口计算 R/F/M 并分箱打分，输出 RFM 组合码，再折成 8 个经典客户分群（带运营动作）；支持近 3 / 6 / 12 个月 / 全部四种窗口切换 | ✅ |
 | 登录与权限 | 手机号 + 密码登录（werkzeug 哈希）、会话管理、CSRF 防护、客户 / 普通成员 / 管理员三档角色 | ✅ |
 | 支付 / 并发控制 | Redis 锁（token + TTL + Lua 原子释放）+ `@idempotent` 幂等；取消订单走条件 `UPDATE` 状态机，重复操作靠 `rowcount` 识别；发起支付为 `501` 占位 | ✅ 骨架 |
 | 客户下单闭环 | 客户自助注册（`customers` + `users(role=0)` 双表事务）→ 浏览在售商品 → 下单 → 改数量 / 取消 → 员工「确认线下收款」（`1 → 2`）；已支付订单冻结，无退款（P1-B 不做） | ✅ |
 | CRUD 与软删除 | 客户注销 / 商品下架 / 订单取消都只改状态列（不物理 `DELETE`）；写接口分别挂 `@customer_required` / `@staff_required` / `@admin_required`，订单操作再做归属校验 | ✅ |
-| 测试 | pytest（98 条）：数据质量、事务原子性、外键约束、表结构契约、RFM 分箱与客户分群、RFM 页面聚合、路由层与安全（CSRF / 权限 / 越权）、Redis 锁与状态机、幂等缓存、P2 下单闭环 | ✅ |
+| 测试 | pytest（135 条）：数据质量、事务原子性、外键约束、表结构契约、RFM 分箱与客户分群、RFM 页面聚合、路由层与安全（CSRF / 权限 / 越权）、Redis 锁与状态机、幂等缓存、P2 下单闭环、列表分页（`?page=&size=` + `LIMIT/OFFSET`）、列表筛选与排序 | ✅ |
 
 ---
 
@@ -79,11 +79,12 @@ Flask_app/
 │   ├── rfm_report.py      #   页面聚合层：KPI / 分群 / 分布 / 环比 / 明细（纯函数）
 │   ├── redis_client.py     #   Redis 惰性单例（可重置，测试可替换）
 │   ├── lock.py             #   分布式锁（redis_lock / order_lock）
-│   └── idempotent.py       #   @idempotent 幂等装饰器
-├── templates/              # Jinja2 模板（base.html 基座 + 各页面模板，无第三方 UI 框架）
-├── static/                 # 自建设计系统：css/ app.css + rfm.css；js/ app.js + rfm.js + list.js + form.js + import.js
+│   ├── idempotent.py       #   @idempotent 幂等装饰器
+│   └── pagination.py       #   列表分页：?page=&size= 参数解析、COUNT + LIMIT/OFFSET 查询助手
+├── templates/              # Jinja2 模板（base.html 基座 + 各页面模板 + partials/_pager.html 分页宏，无第三方 UI 框架）
+├── static/                 # 自建设计系统：css/ app.css + rfm.css；js/ app.js + rfm.js + form.js + import.js
 ├── scripts/                # seed_demo.py：一键重建演示库（建库 → 建表 → 导入 CSV → 建管理员）
-├── tests/                  # pytest 用例（rfm / rfm_report / quality / import_db / lock / idempotent）
+├── tests/                  # pytest 用例（rfm / rfm_report / quality / import_db / lock / idempotent / pagination）
 └── docs/                   # 项目文档 + frontend-preview/（页面预览截图）
 ```
 
@@ -188,7 +189,9 @@ flask --app app run --debug
 
 浏览器打开 `http://127.0.0.1:5000` → 跳转登录页 → 登录后顶栏是平铺导航：
 **导入数据 / 客户管理 / 订单管理 / 产品管理 / 数据分析**（客户账号看到的是 商品中心 / 我的订单）。
-管理员先从「导入数据」载入示例 CSV（示例数据在 `static/archive/`，历史流水会按已支付立账），
+管理员先从「导入数据」载入示例 CSV（示例数据在 `static/archive/`，历史流水会按已支付立账；
+若库里已有页面产生的业务数据（注册客户 / 下单 / 手工商品），导入默认会被拦下，
+需要在导入页点「清空并重建」并输入「清空」二次确认，员工与管理员账号会保留），
 再点「数据分析」查看 RFM 分层的 KPI、气泡矩阵、分布图和客户明细。
 
 > 客户账号从 `/register` 自助注册（`users.role=0`，同一事务里同时写 `customers` 表）；
@@ -205,7 +208,7 @@ pytest -v
 - Redis 相关的测试用 `db1` 且只操作 `idem:unittest:*` 前缀的键，跑完清干净，不会 `FLUSHDB`；
 - 本机没起 **MySQL** 或 **Redis** 时，依赖它们的集成用例会自动 skip（不是失败）：
   MySQL 不可用时是入库 / 路由 / 表结构契约那批，Redis 不可用时是锁 / 幂等两组。
-  所以 `skipped` 变多通常只是服务没起 —— 两个服务都在时才是完整的 **98 passed**。
+  所以 `skipped` 变多通常只是服务没起 —— 两个服务都在时才是完整的 **135 passed**。
 
 ---
 
@@ -329,7 +332,7 @@ customers (客户主数据)          products (商品主数据)
 | GET/POST | `/register` | 客户自助注册（`customers` + `users(role=0)` 双表事务） | 匿名 |
 | GET / POST | `/login` / `/logout` | 登录 / 登出 | 匿名 / 登录 |
 | GET | `/ge_rfm?window=` | RFM 分析结果页（`window` 取 `3m` / `6m` / `12m` / `all`） | **员工 / 管理员** |
-| POST | `/clear_input` | 清空并重新导入交易数据（检测到业务数据会 409 拒绝） | **管理员** |
+| POST | `/clear_input` | 清空并重新导入交易数据（检测到页面产生的业务数据默认 409 拒绝；导入页「清空并重建」可显式授权，保留员工/管理员账号） | **管理员** |
 | GET | `/pay/order/<order_id>` | 查询订单支付状态（`payable` 表示是否可支付） | 登录 + 归属校验 |
 | POST | `/pay/prepay/<order_id>` | 发起支付：锁 + 幂等 + 状态校验是真的，**网关未接 → 固定 501** | 登录 + 幂等 + 归属校验 |
 | POST | `/pay/cancel/<order_id>` | 取消未支付订单（`1 → 3`，条件 `UPDATE`） | 登录 + 幂等 + 归属校验 |
@@ -343,17 +346,18 @@ customers (客户主数据)          products (商品主数据)
 
 ## 八、测试与验证
 
-`pytest` 共 **98 条**，按文件分：
+`pytest` 共 **135 条**，按文件分：
 
 | 文件 | 条数 | 覆盖 |
 |---|---|---|
 | `tests/test_rfm.py` | 15 | 观察窗口切分、先切窗口再分箱、R 反向打分、并列值 / 小样本、组合码、三档折两档与 8 分群汇总 |
 | `tests/test_rfm_report.py` | 11 | 页面聚合层：KPI / 分群行 / 直方图分桶合计 / 切点与分档一致 / 环比与「全部」无上一周期 / 人民币折算 / 明细行 |
 | `tests/test_quality.py` | 11 | 必填列、重复交易号、金额不一致、异常值阈值、报告结构 |
-| `tests/test_import_db.py` | 18 | 临时库建表、事务原子性、外键约束、重复导入、表结构契约、路由与安全（登录跳转 / 管理员校验 / CSRF） |
+| `tests/test_import_db.py` | 19 | 临时库建表、事务原子性、外键约束、重复导入、表结构契约、路由与安全（登录跳转 / 管理员校验 / CSRF） |
 | `tests/test_lock.py` | 7 | 互斥、token 校验、TTL 续期、放锁、锁忙异常、条件 `UPDATE` 的 `rowcount` |
 | `tests/test_idempotent.py` | 7 | 2xx 写缓存 / 重放、非 JSON 不缓存、状态码保留、缓存损坏降级、旧格式兼容、缺 request_id |
-| `tests/test_p2_crud.py` | 29 | P2 下单闭环：客户注册 / 下单 / 改数量 / 取消、三档角色权限、订单归属（防 IDOR）、软删除与注销恢复、员工确认收款、导入守卫、CSRF 与表单参数校验 |
+| `tests/test_p2_crud.py` | 49 | P2 下单闭环：客户注册 / 下单 / 改数量 / 取消、三档角色权限、订单归属（防 IDOR）、软删除与注销恢复、员工确认收款、导入守卫、CSRF 与表单参数校验、列表筛选与排序（状态 / 关键词 / 排序 / 非法参数回落 / LIKE 转义 / 翻页保留筛选） |
+| `tests/test_pagination.py` | 16 | 分页纯函数与查询助手：`parse_page` / `parse_size` 白名单回落、`normalize` 越界夹紧与空表、`page_window` 省略号序列、`paginate` 的 COUNT + LIMIT/OFFSET 与过滤参数；筛选参数 `parse_q` / `like_pattern`（`%`、`_`、反斜杠转义）/ `parse_choice` 白名单 |
 
 另外做过 9 项针对**真实 Redis** 的手工验证（锁互斥、token 不匹配不误删、`PTTL` 续期、
 TTL 到期自动失效、`SCRIPT FLUSH` 后 `EVALSHA` 自动回退重载、8 线程并发临界区最多 1 人），
@@ -367,7 +371,18 @@ TTL 到期自动失效、`SCRIPT FLUSH` 后 `EVALSHA` 自动回退重载、8 线
 
 - [x] **7 个 CRUD 空壳**：已落地（2026-10-20）—— 7 个空壳接口全部实现，删除类操作改为软删除
       （`cus_status` / `product_status` / `order_status`），订单操作带归属校验；客户注册 / 下单 /
-      员工确认收款闭环打通；全套 98 条测试全绿。代码手册见 [`docs/P2-实施手册-00-索引.md`](docs/P2-实施手册-00-索引.md)。
+      员工确认收款闭环打通；全套 135 条测试全绿。代码手册见 [`docs/P2-实施手册-00-索引.md`](docs/P2-实施手册-00-索引.md)。
+- [x] **列表页服务端分页**：已落地 —— 订单 / 客户 / 商品列表改为 `?page=&size=` + `LIMIT/OFFSET`
+      （`utils/pagination.py` + `templates/partials/_pager.html` 宏，默认每页 20、可选 10/20/50/100），
+      单页 HTML 从订单页约 1.5MB 降到约 21KB；改数量 / 删除 / 收款等动作后仍回到原页码。
+      客户列表按客户 ID 数字自然序（Customer-9 在 Customer-10 前）。RFM 客户明细表仍是浏览器端分页
+      （分群筛选需要全量行）。
+- [x] **列表筛选与排序**：已落地 —— 订单（关键词搜订单号 / 交易号 / 客户 ID / 产品名、按状态筛、
+      按日期或金额排序）、客户（关键词搜客户 ID / 地区 / 手机号、按客户状态与账号状态筛、按 ID 或地区排序）、
+      商品（关键词、按分类与上下架状态筛、按 ID 或单价排序）。筛选条件全部走 URL（`?q=&status=&sort=`），
+      翻页、改每页条数、行内「改数量 / 取消 / 确认收款」动作都会自动带上；`%`、`_`、`'` 等输入已做
+      LIKE 转义与白名单校验，不会拼进 SQL；筛空时给的是「没有符合条件」而不是「暂无数据」。
+      暂不支持日期区间与多选筛选。
 - [ ] **退款流程**：已支付订单当前冻结、无退款 —— 属于 P1-B 明确不做的范围，见 P1 文档第 11 节；
       真要做需要状态机加「退款中 / 已退款」并写流水表，属于另一个完整功能。
 - [x] **客户分层命名**：已落地 —— 三维各 3 档折成高/低两档（3 = 高），2×2×2 落回经典 8 分群
@@ -377,9 +392,7 @@ TTL 到期自动失效、`SCRIPT FLUSH` 后 `EVALSHA` 自动回退重载、8 线
       500 记录服务端日志；权限拦截与越权访问不再返回纯文本。
 - [ ] **多格式接入**：`static/archive/` 下的另一种 CSV 结构（30000 行版本）暂不支持，
       计划用「新增一个 loader 而不改已有代码」的方式扩展。
-- [ ] **物化 RFM 结果表 + 后端分页**：当前每次访问实时计算，数据量上去后需要预计算。
-      （列表页分页已抽成 `static/js/list.js` 组件，但仍是前端伪分页、整表一次渲染，
-      订单多时首屏 HTML 会偏大，后续换成后端 `LIMIT/OFFSET`。）
+- [ ] **物化 RFM 结果表**：当前每次访问实时计算，数据量上去后需要预计算。
 - [x] **前端资源自建**：已去掉 Bootstrap / jQuery，改为自建设计系统（`static/css/app.css`
       + `static/js/*.js`，零第三方前端依赖、零构建步骤），页面风格统一为深色顶栏 + 轻卡片。
 - [x] **支付模块止于骨架**：真实网关 / 回调验签 / 支付流水表 / 退款（P1-B）**已决定不做**，

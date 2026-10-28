@@ -13,7 +13,7 @@
 """
 import logging
 
-from flask import Blueprint, flash, jsonify, redirect, session, url_for
+from flask import Blueprint, flash, jsonify, redirect, request, session, url_for
 from sqlalchemy import text
 
 from utils import db
@@ -23,6 +23,7 @@ from utils.order_ops import (ORDER_PAID, ORDER_UNPAID, OrderError, cancel_order,
                              confirm_payment)
 
 from .auth import login_required, staff_required
+from .order import order_list_args
 
 logger = logging.getLogger(__name__)
 
@@ -140,4 +141,5 @@ def confirm(order_id):
         flash('系统繁忙，请稍后重试', 'danger')
     else:
         flash(f'已确认收款：订单 #{order_id} 已标记为已支付', 'success')
-    return redirect(url_for('order.order_list'))
+    # 收款按钮在列表页的每行里，确认完回到原来那一页（分页后尤其重要）
+    return redirect(url_for('order.order_list', **order_list_args(request.form)))

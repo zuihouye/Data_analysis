@@ -307,10 +307,30 @@ img, svg { max-width: 100%; }
 .pager__btn:disabled { opacity: .4; cursor: default; }
 .pager__btn:disabled:hover { background: none; color: var(--fg-soft); }
 .pager__gap { min-width: 22px; text-align: center; color: var(--muted); font-size: var(--fs-sm); }
-.pager__size { display: inline-flex; align-items: center; gap: 6px;
+/* 服务端分页里页码是 <a>，要压掉全局 a:hover 的下划线；禁用页用 aria-disabled */
+.pager__btn { text-decoration: none; }
+.pager__btn:hover { text-decoration: none; }
+.pager__btn[aria-disabled="true"] { opacity: .4; cursor: default; }
+.pager__btn[aria-disabled="true"]:hover { background: none; color: var(--fg-soft); }
+.pager__size { display: inline-flex; align-items: center; gap: 6px; margin: 0;
   font-size: var(--fs-xs); color: var(--fg-soft); }
 .pager__size .select { width: auto; min-height: 28px; padding: 2px 26px 2px 8px;
   font-size: var(--fs-xs); }
+
+/* ── 列表筛选栏（关键词 / 状态 / 排序 / 按钮） ──────────────────────── */
+.tblfilter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.tblfilter .field { flex-direction: column; align-items: stretch; gap: 4px; }
+.tblfilter__grow { flex: 1 1 240px; min-width: 180px; }
+.tblfilter .input, .tblfilter .select { min-height: 32px; }
+.tblfilter .select { min-width: 128px; }
+.tblfilter__actions { display: flex; gap: 8px; margin-left: auto; }
+@media (max-width: 760px) {
+  .tblfilter { align-items: stretch; }
+  .tblfilter .field, .tblfilter__grow { flex: 1 1 100%; }
+  .tblfilter__actions { width: 100%; margin-left: 0; }
+  .tblfilter__actions .btn { flex: 1 1 0; justify-content: center; }
+}
 
 /* ── 回看窗口分段控件 ─────────────────────────────────────────────── */
 .field { display: flex; align-items: center; gap: 8px; }
@@ -390,6 +410,13 @@ details.gloss[open] > summary::before { content: "▾"; }
 .statrow div { display: flex; flex-direction: column; gap: 1px; }
 .statrow span { font-size: var(--fs-xs); color: var(--fg-soft); }
 .statrow b { font-family: var(--font-mono); font-size: 20px; font-weight: 600; }
+.forcebox { margin-top: 16px; padding: 14px;
+  border: 1px solid oklch(85% 0.06 25); border-radius: var(--r);
+  background: var(--danger-weak); }
+.forcebox__hd { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+.forcebox p { margin: 8px 0 0; font-size: var(--fs-xs); color: var(--fg-soft); line-height: 1.7; }
+.forcebox .formrow { margin-top: 12px; }
+.forcebox .formactions { margin-top: 10px; }
 
 /* ── 错误页（403 / 404 / 405 / 500） ───────────────────────────────── */
 .errpage { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }

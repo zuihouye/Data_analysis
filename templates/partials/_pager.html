@@ -1,0 +1,65 @@
+{# 列表页公共分页组件（服务端渲染版）。
+   用法（放在模板顶部导入）：
+     from 'partials/_pager.html' import pager, size_select
+   在 card__hd 里调用 size_select(paging, sizes, qs)，
+   在表格下方调用 pager(paging, 'order.order_list', qs)。
+   参数：
+     p        = 视图传的 paging（utils.pagination.normalize 的返回值 + window）
+     endpoint = url_for 的端点名，例如 'order.order_list'
+     sizes    = utils.pagination.SIZES
+     extra    = 当前筛选参数（dict，已经过滤掉空值和默认排序）。翻页、改每页
+                条数时都要带上，否则筛选会被重置 —— 这是最容易漏的一处。 #}
+
+{% macro size_select(p, sizes, extra={}) -%}
+{% if p.total %}
+<form class="pager__size" method="get">
+  {% for k, v in extra.items() %}
+  <input type="hidden" name="{{ k }}" value="{{ v }}">
+  {% endfor %}
+  <label for="listSize">每页</label>
+  <select class="select" id="listSize" name="size" onchange="this.form.submit()">
+    {% for opt in sizes %}
+    <option value="{{ opt }}"{% if opt == p.size %} selected{% endif %}>{{ opt }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button class="btn btn--ghost btn--sm" type="submit">应用</button></noscript>
+</form>
+{% endif %}
+{%- endmacro %}
+
+{% macro pager(p, endpoint, extra={}) -%}
+<nav class="pager" aria-label="分页">
+  <span class="pager__info">
+    {%- if p.total -%}
+      第 {{ '{:,}'.format(p.start) }}–{{ '{:,}'.format(p.end) }} 条，共 {{ '{:,}'.format(p.total) }} 条
+    {%- else -%}
+      暂无数据
+    {%- endif -%}
+  </span>
+  <div class="pager__nav">
+    {%- if p.pages > 1 %}
+    {% if p.has_prev %}
+    <a class="pager__btn" rel="prev" aria-label="上一页"
+       href="{{ url_for(endpoint, page=p.page - 1, size=p.size, **extra) }}">‹</a>
+    {% else %}
+    <span class="pager__btn" aria-disabled="true" aria-label="上一页">‹</span>
+    {% endif %}
+    {% for n in p.window %}
+      {% if n == 'gap' %}
+    <span class="pager__gap">…</span>
+      {% elif n == p.page %}
+    <span class="pager__btn" aria-current="page">{{ n }}</span>
+      {% else %}
+    <a class="pager__btn" href="{{ url_for(endpoint, page=n, size=p.size, **extra) }}">{{ n }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if p.has_next %}
+    <a class="pager__btn" rel="next" aria-label="下一页"
+       href="{{ url_for(endpoint, page=p.page + 1, size=p.size, **extra) }}">›</a>
+    {% else %}
+    <span class="pager__btn" aria-disabled="true" aria-label="下一页">›</span>
+    {% endif %}
+    {%- endif %}
+  </div>
+</nav>
+{%- endmacro %}

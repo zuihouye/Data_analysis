@@ -449,3 +449,55 @@ def test_login_then_import_end_to_end(test_engine, loaded, monkeypatch):
         resp = client.post('/clear_input', data={'csrf_token': new_token})
         assert resp.status_code == 200
         assert resp.get_json()['status'] == 'success'
+
+
+def test_clear_input_route_force_clears_business_data(test_engine, loaded, monkeypatch):
+    """路由层：默认被 409 拦截；带 force_clear=true 时清空业务数据并导入成功。"""
+    monkeypatch.setattr(dbmod, 'engine', test_engine)
+
+    with test_engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO customers (customer_id, region, cus_status) "
+            "VALUES ('REG-route-test', 'Yangon', 1)"))
+        conn.execute(text(
+            "INSERT INTO users (phone, username, password_hash, role, customer_id) "
+            "VALUES ('13900000009', '网页客户', 'x', 0, 'REG-route-test')"))
+        conn.execute(text(
+            "INSERT INTO users (phone, username, password_hash, role) "
+            "VALUES ('13900000010', '员工小李', 'x', 1)"))
+
+    from views import create_app
+    app = create_app()
+    app.config['TESTING'] = True
+
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 1
+            sess['username'] = 'tester'
+            sess['phone'] = '13000000000'
+            sess['role'] = 2
+            sess['_csrf_token'] = CSRF_TOKEN
+
+        # 1. 不授权 -> 409，并返回会被清理的数据清单给前端展示
+        resp = client.post('/clear_input',
+                           headers={'X-CSRF-Token': CSRF_TOKEN})
+        assert resp.status_code == 409
+        body = resp.get_json()
+        assert body['guard_counts']['customer_accounts'] >= 1
+        assert body['guard_counts']['web_customers'] >= 1
+
+        # 2. 显式 force_clear -> 清空业务数据后导入成功
+        resp = client.post('/clear_input',
+                           json={'force_clear': True},
+                           headers={'X-CSRF-Token': CSRF_TOKEN})
+        assert resp.status_code == 200
+        assert resp.get_json()['status'] == 'success'
+
+    with test_engine.connect() as conn:
+        assert conn.execute(text(
+            "SELECT COUNT(*) FROM customers WHERE customer_id = 'REG-route-test'")
+        ).scalar() == 0
+        assert conn.execute(text(
+            'SELECT COUNT(*) FROM users WHERE role = 0')).scalar() == 0
+        assert conn.execute(text(
+            "SELECT COUNT(*) FROM users WHERE phone = '13900000010'")).scalar() == 1

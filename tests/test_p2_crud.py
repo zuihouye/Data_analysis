@@ -655,3 +655,310 @@ def test_import_is_blocked_once_business_data_exists(test_engine, prepared, acco
 
     assert _count(test_engine, 'SELECT COUNT(*) FROM customers') == before['customers']
     assert _count(test_engine, 'SELECT COUNT(*) FROM orders') == before['orders']
+
+
+def test_force_import_clears_business_data_but_keeps_staff_accounts(test_engine, prepared, accounts):
+    """显式「清空并重建」：删客户账号 / 客户 / 商品 / 订单，员工与管理员账号保留。
+
+    外键方向是 users.customer_id -> customers.customer_id，所以清理前必须先解绑，
+    否则 DELETE customers 会报 1451；这条测试顺带守住那个顺序。
+    """
+    with test_engine.begin() as conn:
+        write_to_db(prepared, conn, force_clear=True)
+
+    assert _count(test_engine, 'SELECT COUNT(*) FROM customers') == prepared['customer_id'].nunique()
+    assert _count(test_engine, 'SELECT COUNT(*) FROM products') == prepared['product_id'].nunique()
+    assert _count(test_engine, 'SELECT COUNT(*) FROM orders') == len(prepared)
+
+    # 客户账号（role=0）连人带档案删掉；员工/管理员账号保留，客户档案绑定被解除
+    assert _count(test_engine, 'SELECT COUNT(*) FROM users WHERE role = 0') == 0
+    assert _count(test_engine, 'SELECT COUNT(*) FROM users WHERE phone = :p',
+                  p=accounts['staff_phone']) == 1
+    assert _count(test_engine, 'SELECT COUNT(*) FROM users WHERE phone = :p',
+                  p=accounts['admin_phone']) == 1
+    assert _count(test_engine, 'SELECT COUNT(*) FROM users WHERE customer_id IS NOT NULL') == 0
+
+    # 清空后业务数据保护应该重新放行（库里已经没有页面产生的数据）
+    with test_engine.begin() as conn:
+        write_to_db(prepared, conn)
+
+# ============================================================ 七、列表分页
+#
+# 这组用例跑在上面「清空并重建」之后，所以库里的数据是纯 CSV 那份：
+# 812 客户 / 10 商品 / 1999 订单；员工与管理员账号保留（13800000003/04）。
+# 客户账号（role=0）已被清掉，所以这里一律用员工身份登录。
+
+STAFF_PHONE = '13800000003'
+
+
+def _login_staff(client):
+    return _login(client, STAFF_PHONE)
+
+
+def _order_ids(html):
+    """从订单列表 HTML 里按出现顺序抓订单号（模板只渲染当前页的行）。"""
+    marker = 'data-l="订单号">#'
+    ids = []
+    pos = html.find(marker)
+    while pos != -1:
+        start = pos + len(marker)
+        end = html.find('<', start)
+        ids.append(int(html[start:end]))
+        pos = html.find(marker, end)
+    return ids
+
+
+def _customer_ids(html):
+    marker = 'data-l="客户 ID">'
+    ids = []
+    pos = html.find(marker)
+    while pos != -1:
+        start = pos + len(marker)
+        end = html.find('<', start)
+        ids.append(html[start:end])
+        pos = html.find(marker, end)
+    return ids
+
+
+def test_order_list_only_renders_current_page(client, db):
+    total = _count(db, 'SELECT COUNT(*) FROM orders')
+    assert total > 20, '这组用例需要超过一页的订单数据'
+
+    _login_staff(client)
+    resp = client.get('/order/list?page=1&size=20')
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    page1 = _order_ids(html)
+    assert len(page1) == 20
+    assert '第 1–20 条，共 {:,} 条'.format(total) in html
+
+    html2 = client.get('/order/list?page=2&size=20').get_data(as_text=True)
+    page2 = _order_ids(html2)
+    assert len(page2) == 20
+    assert not set(page1) & set(page2), '相邻两页不能出现同一笔订单'
+
+    # 只渲染当前页：每页 100 条时正好 100 行，不会把 1999 行全塞进 HTML
+    html_full = client.get('/order/list?size=100').get_data(as_text=True)
+    assert len(_order_ids(html_full)) == 100
+
+
+def test_order_list_bad_page_or_size_falls_back(client, db):
+    total = _count(db, 'SELECT COUNT(*) FROM orders')
+    _login_staff(client)
+
+    html = client.get('/order/list?page=abc&size=999').get_data(as_text=True)
+    assert '第 1–20 条，共 {:,} 条'.format(total) in html
+    assert 'value="20" selected' in html
+
+    # page 超过最后一页 -> 夹到最后一页，而不是渲染空表
+    pages = (total + 19) // 20
+    last_start = (pages - 1) * 20 + 1
+    html = client.get('/order/list?page=9999&size=20').get_data(as_text=True)
+    assert '第 {:,}–{:,} 条，共 {:,} 条'.format(last_start, total, total) in html
+
+
+def test_order_list_size_select_switches_page_size(client, db):
+    total = _count(db, 'SELECT COUNT(*) FROM orders')
+    _login_staff(client)
+    html = client.get('/order/list?size=50').get_data(as_text=True)
+    assert len(_order_ids(html)) == min(50, total)
+    assert 'value="50" selected' in html
+
+
+def test_customer_list_uses_natural_id_order(client, db):
+    """Customer-9 必须排在 Customer-10 前面（字符串排序会反过来）。"""
+    with db.begin() as conn:
+        conn.execute(text(
+            'INSERT INTO customers (customer_id, region, cus_status) VALUES '
+            "('Customer-9', 'Test', 1), ('Customer-10', 'Test', 1)"))
+
+    _login_staff(client)
+    html = client.get('/customer/list?size=100&page=1').get_data(as_text=True)
+    ids = _customer_ids(html)
+    assert 'Customer-9' in ids and 'Customer-10' in ids
+    assert ids.index('Customer-9') < ids.index('Customer-10')
+
+
+def test_customer_list_registered_count_comes_from_sql(client, db):
+    expected = _count(
+        db, 'SELECT COUNT(u.customer_id) FROM customers c '
+            'LEFT JOIN users u ON u.customer_id = c.customer_id')
+    _login_staff(client)
+    html = client.get('/customer/list?size=10').get_data(as_text=True)
+    assert '{:,} 位已注册账号'.format(expected) in html
+
+
+def test_product_list_single_page_has_no_pager(client, db):
+    on_sale = _count(db, 'SELECT COUNT(*) FROM products WHERE product_status = 1')
+    _login_staff(client)
+    html = client.get('/product/list').get_data(as_text=True)
+    assert '{:,} 个在售'.format(on_sale) in html
+    assert 'aria-label="下一页"' not in html      # 一页放得下就不渲染分页按钮
+
+
+def test_product_list_pager_appears_when_more_than_one_page(client, db):
+    """造 25 个商品：第二页必须出现，且只渲染当前页的商品行。"""
+    with db.begin() as conn:
+        for i in range(25):
+            conn.execute(text(
+                'INSERT INTO products (product_id, product_name, ppu, product_status) '
+                'VALUES (:pid, :name, 1.00, 1)'),
+                {'pid': f'SKU-page-{i:02d}', 'name': f'分页商品{i}'})
+
+    _login_staff(client)
+    html = client.get('/product/list?page=2&size=10').get_data(as_text=True)
+    assert '分页商品' in html
+    assert '第 11–20 条' in html
+    total = _count(db, 'SELECT COUNT(*) FROM products')
+    assert '共 {:,} 条'.format(total) in html
+
+
+def test_order_update_form_keeps_page_args(client, db):
+    product_id = _one(db, 'SELECT product_id FROM products '
+                          'WHERE product_status = 1 LIMIT 1')['product_id']
+    customer_id = _one(db, 'SELECT customer_id FROM customers LIMIT 1')['customer_id']
+    order = create_order(customer_id, product_id, 1)
+
+    _login_staff(client)
+    resp = client.get('/order/update?order_id={}&page=2&size=10'.format(order['order_id']))
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'name="page" value="2"' in html
+    assert 'name="size" value="10"' in html
+
+
+def test_confirm_payment_redirects_back_to_same_page(client, db):
+    product_id = _one(db, 'SELECT product_id FROM products '
+                          'WHERE product_status = 1 LIMIT 1')['product_id']
+    customer_id = _one(db, 'SELECT customer_id FROM customers LIMIT 1')['customer_id']
+    order = create_order(customer_id, product_id, 1)
+
+    token = _login_staff(client)
+    resp = client.post(f"/pay/confirm/{order['order_id']}",
+                       data={'csrf_token': token, 'page': '2', 'size': '10'})
+    assert resp.status_code == 302
+    location = resp.headers['Location']
+    assert '/order/list' in location
+    assert 'page=2' in location and 'size=10' in location
+
+
+# ============================================================ 八、列表筛选与排序
+#
+# 数据基线同「七」：CSV 那份（812 客户 / 10 商品 / 1999 订单）。
+# 重点验证三件事：筛选只影响当前页的数据与总数、非法参数不会拼进 SQL、
+# 筛选条件在翻页/每页条数/行内动作之间不会丢。
+
+def _row_order_ids(html):
+    return _order_ids(html)
+
+
+def _amounts(html):
+    """抓行内金额（已折人民币，形如 1,234.56），返回 float 列表。"""
+    import re
+    return [float(x.replace(',', ''))
+            for x in re.findall(r'data-l="金额">¥ ([\d,\.]+)', html)]
+
+
+def test_order_filter_by_status(client, db, accounts):
+    paid = _count(db, 'SELECT COUNT(*) FROM orders WHERE order_status = 2')
+    _login_staff(client)
+    html = client.get('/order/list?status=2&size=10').get_data(as_text=True)
+    assert '共 {:,} 条'.format(paid) in html
+    assert '待付款' not in _order_rows(html)     # 行里不应出现别的状态
+    assert '已支付' in _order_rows(html)
+
+
+def _order_rows(html):
+    """截取 tbody 部分，避免把筛选下拉里的文案（待付款/已支付）算进来。"""
+    start = html.find('<tbody>')
+    end = html.find('</tbody>', start)
+    return html[start:end]
+
+
+def test_order_filter_by_keyword(client, db, accounts):
+    tx = _one(db, 'SELECT transaction_id FROM orders ORDER BY order_id LIMIT 1')['transaction_id']
+    _login_staff(client)
+    html = client.get(f'/order/list?q={tx}').get_data(as_text=True)
+    rows = _order_rows(html)
+    assert tx in rows
+    assert len(_row_order_ids(html)) == 1
+
+
+def test_order_filter_invalid_params_fall_back(client, db, accounts):
+    _login_staff(client)
+    html = client.get('/order/list?status=99&sort=evil&page=abc&size=7').get_data(as_text=True)
+    # size=7 不在白名单回落到 20，page 回落 1
+    assert 'size="20"' in html or 'value="20" selected' in html
+    assert '第 1–20 条' in html
+
+
+def test_order_filter_escapes_like_wildcards(client, db, accounts):
+    _login_staff(client)
+    # % 被转义成字面量：没有任何交易号/产品名真的包含 %，所以应该是空结果
+    html = client.get('/order/list?q=%25').get_data(as_text=True)
+    assert '没有符合条件的订单' in html
+    # 单引号 / 注入串也只能当普通文本，不能 500
+    html2 = client.get("/order/list?q=%27%20OR%201%3D1%20--").get_data(as_text=True)
+    assert '没有符合条件的订单' in html2
+
+
+def test_order_sort_amount_desc(client, db, accounts):
+    _login_staff(client)
+    html = client.get('/order/list?sort=amount_desc&size=50').get_data(as_text=True)
+    amounts = _amounts(html)
+    assert len(amounts) == 50
+    assert amounts == sorted(amounts, reverse=True)
+
+
+def test_order_filter_kept_across_pagination(client, db, accounts):
+    _login_staff(client)
+    html = client.get('/order/list?status=2&page=2&size=10').get_data(as_text=True)
+    assert '第 11–20 条' in html
+    # 翻页链接、每页条数表单、行内动作都必须把 status=2 带上
+    assert 'status=2' in html
+    assert 'name="status" value="2"' in html
+
+
+def test_customer_filter_by_keyword(client, db, accounts):
+    _login_staff(client)
+    html = client.get('/customer/list?q=Customer-002').get_data(as_text=True)
+    ids = _customer_ids(html)
+    assert ids == ['Customer-002']
+
+
+def test_customer_filter_by_account(client, db, accounts):
+    """按「已注册」筛选：页头计数来自 SQL，且筛空时给的是筛选空态文案。"""
+    registered = _count(db, 'SELECT COUNT(u.customer_id) FROM customers c '
+                            'LEFT JOIN users u ON u.customer_id = c.customer_id')
+    _login_staff(client)
+    html = client.get('/customer/list?account=1').get_data(as_text=True)
+    assert '{:,} 位已注册账号'.format(registered) in html
+    if registered:
+        assert '未注册' not in _customer_rows(html)
+
+    # Customer-002 是 CSV 里的客户、没有账号：再加关键词必然筛空
+    html = client.get('/customer/list?account=1&q=Customer-002').get_data(as_text=True)
+    assert '没有符合条件的客户' in html
+
+
+def _customer_rows(html):
+    start = html.find('<tbody>')
+    return html[start:html.find('</tbody>', start)]
+
+
+def test_product_filter_by_category_and_price(client, db, accounts):
+    _login_staff(client)
+    html = client.get('/product/list?category=Electronics&sort=price_asc').get_data(as_text=True)
+    ids = [x for x in __import__('re').findall(r'data-l="产品 ID">([^<]+)', html)]
+    prices = [float(x.replace(',', ''))
+              for x in __import__('re').findall(r'data-l="单价">¥ ([\d,\.]+)', html)]
+    assert ids and prices == sorted(prices)
+    assert len(ids) == _count(db, "SELECT COUNT(*) FROM products "
+                                  "WHERE product_category = 'Electronics'")
+
+
+def test_filter_form_keeps_values(client, db, accounts):
+    _login_staff(client)
+    html = client.get('/order/list?q=T002000&status=2').get_data(as_text=True)
+    assert 'value="T002000"' in html
+    assert '<option value="2" selected>已支付</option>' in html

@@ -1,0 +1,10 @@
+# qa 自动化测试依赖（Python 3.14 下实测可用；装法见 README-如何拷进Flask_app.md）
+# 项目自身已依赖 flask/pymysql/redis/python-dotenv，这里只列 qa 额外需要的
+pytest==9.1.1
+requests>=2.31,<3
+selenium>=4.20,<5
+python-dotenv>=1.0,<2
+pytest-html>=4.0,<5
+faker>=30,<50
+waitress>=3.0,<4
+beautifulsoup4>=4.12,<5

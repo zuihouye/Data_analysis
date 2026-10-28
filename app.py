@@ -30,5 +30,4 @@ app = create_app()
 
 if __name__ == '__main__':
     print(f'[*] 数据库: {os.getenv("DB_NAME") or "taobao_user"}')
-    print('[*] 地址:   http://127.0.0.1:5000')
-    app.run()
+    app.run(host="0.0.0.0", port=5000, debug=True)

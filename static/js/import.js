@@ -1,10 +1,18 @@
-/* 导入页：POST /clear_input（CSRF 走请求头），把质量报告与数据预览渲染出来。 */
+/* 导入页：POST /clear_input（CSRF 走请求头），把质量报告与数据预览渲染出来。
+   两种模式：默认「开始导入」遇到业务数据会被 409 拦截；
+   「清空并重建」需要先输入确认文字，POST 时带 force_clear=true 显式授权。 */
 (function () {
   var btn = document.getElementById('importBtn');
+  var forceBtn = document.getElementById('forceBtn');
+  var forceWord = document.getElementById('forceWord');
+  var forceHint = document.getElementById('forceHint');
+  var forceZone = document.getElementById('forceZone');
   var box = document.getElementById('importResult');
   var note = document.getElementById('resultNote');
   var hint = document.getElementById('importHint');
   if (!btn || !box) return;
+
+  var busy = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -100,47 +108,92 @@
     box.innerHTML = html;
   }
 
-  function renderError(msg, status) {
+  function renderError(msg, status, forced) {
     box.classList.remove('empty');
-    box.innerHTML = '<div class="flash flash--error" style="margin:0"><b>导入未执行</b><br>' +
+    var html = '<div class="flash flash--error" style="margin:0"><b>' +
+      (forced ? '清空重建失败' : '导入未执行') + '</b><br>' +
       esc(msg) + (status ? '（HTTP ' + status + '）' : '') + '</div>';
+    if (status === 409 && !forced) {
+      html += '<p class="hint" style="margin:12px 0 0">' +
+        '确认要覆盖现有业务数据时，可回到左侧「清空并重建」，输入「清空」后重试。</p>';
+    }
+    box.innerHTML = html;
   }
 
-  function setBusy(busy) {
-    btn.disabled = busy;
-    btn.textContent = busy ? '导入中…' : '开始导入';
-    if (hint) hint.textContent = busy ? '正在清洗、校验并写入数据库，请勿关闭页面…' : '导入 2,000 行左右，通常几秒完成';
+  function setBusy(on, trigger) {
+    busy = on;
+    [btn, forceBtn].forEach(function (b) {
+      if (!b) return;
+      b.disabled = on;
+      if (b === forceBtn) b.textContent = on && trigger === forceBtn ? '清空中…' : '清空业务数据并导入';
+      else b.textContent = on && trigger === btn ? '导入中…' : '开始导入';
+    });
+    if (forceWord) forceWord.disabled = on;
+    if (hint) {
+      hint.textContent = on && trigger === btn
+        ? '正在清洗、校验并写入数据库，请勿关闭页面…'
+        : '将清空并重建三张业务表；写库前会做数据质量校验与业务数据保护检查';
+    }
+    if (forceHint) forceHint.textContent = on ? '正在执行，请勿关闭页面…' : '输入正确后按钮才会启用';
   }
 
-  btn.addEventListener('click', function () {
-    if (btn.dataset.busy === '1') return;
-    if (!window.confirm('将删除并重建 customers / products / orders 三张表，确定继续？')) return;
-    btn.dataset.busy = '1';
-    setBusy(true);
+  function runImport(force) {
+    if (busy) return;
+    var trigger = force ? forceBtn : btn;
+    setBusy(true, trigger);
     note.textContent = '执行中';
     box.classList.remove('empty');
-    box.innerHTML = '<div class="empty"><strong>正在导入…</strong><span>大文件可能需要几十秒。</span></div>';
+    box.innerHTML = '<div class="empty"><strong>' + (force ? '正在清空并导入…' : '正在导入…') +
+      '</strong><span>大文件可能需要几十秒。</span></div>';
 
     fetch('/clear_input', {
       method: 'POST',
-      headers: { 'X-CSRF-Token': csrf(), 'Accept': 'application/json' },
-      credentials: 'same-origin'
+      headers: {
+        'X-CSRF-Token': csrf(),
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({ force_clear: !!force })
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (!res.ok) {
-          renderError(data.message || '请求失败，请确认登录状态与管理员权限。', res.status);
+          renderError(data.message || '请求失败，请确认登录状态与管理员权限。', res.status, force);
           note.textContent = '失败';
           return;
         }
         renderSuccess(data);
+        if (force && forceZone) forceZone.remove();  // 业务数据已清空，危险区不再需要
         note.innerHTML = '<span class="badge badge--ok">已完成</span>';
       });
     }).catch(function (err) {
-      renderError('网络或服务端异常：' + err.message, 0);
+      renderError('网络或服务端异常：' + err.message, 0, force);
       note.textContent = '失败';
     }).then(function () {
-      btn.dataset.busy = '';
-      setBusy(false);
+      setBusy(false, trigger);
     });
+  }
+
+  btn.addEventListener('click', function () {
+    if (busy) return;
+    if (!window.confirm('将删除并重建 customers / products / orders 三张表，确定继续？')) return;
+    runImport(false);
   });
+
+  if (forceBtn) {
+    // 输入「清空」两个字才解锁，避免误点
+    var syncForce = function () {
+      var ok = forceWord && forceWord.value.trim() === '清空';
+      forceBtn.disabled = !ok || busy;
+      if (forceHint) forceHint.textContent = ok ? '已确认，点击后将清空业务数据并重新导入' : '输入正确后按钮才会启用';
+    };
+    if (forceWord) forceWord.addEventListener('input', syncForce);
+    forceBtn.addEventListener('click', function () {
+      if (busy) return;
+      if (!forceWord || forceWord.value.trim() !== '清空') return;
+      if (!window.confirm('将删除全部客户、商品、订单与客户账号，然后导入 CSV。此操作不可撤销，确定继续？')) return;
+      runImport(true);
+    });
+    syncForce();
+  }
 })();

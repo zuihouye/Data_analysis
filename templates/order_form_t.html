@@ -15,7 +15,7 @@
       </p>
     </div>
     <div class="pagehead__r">
-      <a class="btn btn--ghost" href="{{ url_for('order.order_list') }}">返回订单列表</a>
+      <a class="btn btn--ghost" href="{{ url_for('order.order_list', **ret) if ret else url_for('order.order_list') }}">返回订单列表</a>
     </div>
   </div>
 </div>
@@ -31,6 +31,11 @@
     <div class="card__bd">
       <form method="post" action="{{ url_for('order.order_update', order_id=order.order_id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if ret %}
+        {% for k, v in ret.items() %}{% if v %}
+        <input type="hidden" name="{{ k }}" value="{{ v }}">
+        {% endif %}{% endfor %}
+        {% endif %}
 
         <div class="formrow">
           <div class="formfield">
@@ -54,7 +59,7 @@
 
         <div class="formactions">
           <button class="btn btn--primary" type="submit">保存</button>
-          <a class="btn btn--ghost" href="{{ url_for('order.order_list') }}">取消</a>
+          <a class="btn btn--ghost" href="{{ url_for('order.order_list', **ret) if ret else url_for('order.order_list') }}">取消</a>
         </div>
       </form>
     </div>
