@@ -62,8 +62,8 @@ def _save_login(row):
     session["phone"] = row['phone']
     session["role"] = row['role']
     session["_csrf_token"] = secrets.token_urlsafe(32)  # 显式轮换，由下一个页面渲染给浏览器
-    # SQLAlchemy 2.x 的 Row 没有 .get()，用 keys() 判断列是否存在；
-    # 员工账号没有 customer_id 列值（NULL），这里存 None，客户账号存客户主数据 ID
+    # 用 keys() 判断列是否存在：登录/注册各自的 SELECT 不保证都带这一列，
+    # 无条件读 row["customer_id"] 会在"某条查询少选一列"时抛 KeyError（BUG-002 的根因）
     session["customer_id"] = (row["customer_id"]
                               if "customer_id" in row.keys() else None)
     session.permanent = True

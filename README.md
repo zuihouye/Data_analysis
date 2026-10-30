@@ -1,392 +1,202 @@
-# 电商订单后台 + 质量保障
+# 电商订单后台（Flask）｜质量保障与测试资产
 
-基于 **Flask + MySQL + Redis + pandas** 的电商交易数据管理与 RFM 客户价值分析系统。
+> 一个「自己开发、自己测」的 Flask 电商订单后台：业务闭环可跑，同时配一套**可验证**的质量保障资产。
+>
+> 规模：**34 条手工用例 + 2 条缺陷回归用例**（登录 11 / 注册 11 / 商品 12）、**11 条接口自动化**（pytest + requests）、**3 条 UI 冒烟**（Selenium + PO 模式）、**2 篇 500 级缺陷复盘**、**135 条开发期回归测试**（pytest）。
+>
+> 这个仓库回答一个问题：**没有公司项目经验时，测试能力怎么被证明**——不是「我上过测试课」，而是「这是用例、这是执行记录、这是缺陷、这是回归验证」。
 
-两条线：
+---
 
-1. **业务线（内部员工用）**：把原始交易明细 CSV 清洗、校验、入库，提供客户 / 订单 / 商品的列表查询；
-   再按回看窗口（近 3 / 6 / 12 个月或全部）计算每位客户的 **R / F / M** 三个维度并打分分层，
-   回答一个具体业务问题：**这批客户里，哪些值得重点维护、哪些正在流失。**
-2. **工程线（后端能力示范）**：支付链路的**并发控制地基** —— Redis 分布式锁 + 幂等 + 数据库条件 `UPDATE` 状态机。
-   只到接口骨架，不接真实网关（见下面的「为什么」）。
+## 一、我做了什么
 
-> 这是一个求职作品项目，刻意做成一条完整链路：
-> 数据接入 → 质量校验 → 事务入库 → 指标计算 → Web 展示 → 测试锁定。
-> 重点不在"能跑"，而在**每个工程决策都有理由**（见 `docs/01-改造路线图.md`）。
+业务与测试都在这个仓库里，两件事是分开的：
 
+| 角色 | 产物 |
+|---|---|
+| 开发 | Flask + MySQL + Redis 的电商后台：登录/注册/权限、商品与订单、支付并发骨架（Redis 锁 + 幂等）、RFM 客户价值分析、CSV 数据导入 |
+| 测试 | 用例设计（34+2，含覆盖矩阵与优先级）、手工执行（DevTools + SQL 佐证）、缺陷定位与复盘（2 个 P0 级 500）、接口自动化、UI 冒烟、回归验证 |
 
-## 一、功能
+**测试工作流（也是面试讲述顺序）**：
+
+```
+需求与代码理解 → 用例设计（等价类 / 边界值 / 场景法 / 错误推测）
+→ 手工执行（F12 Network + MySQL 查库佐证）→ 缺陷定位（假设-验证-结论）
+→ 修复验证 → 自动化回归 → 复盘沉淀
+```
+
+---
+
+## 二、被测系统概览
 
 | 模块 | 能力 | 状态 |
 |---|---|---|
-| 数据接入 | 读取原始交易 CSV，自动统一列名、去千分位、解析日期 | ✅ |
-| 数据质量校验 | 必填列缺失直接中止；重复交易号、金额不一致、异常值按阈值报告并过滤，结果以 JSON 报告返回 | ✅ |
-| 入库 | 单事务内 `DELETE` + `to_sql(append)`，任一步失败整体回滚；重复导入幂等 | ✅ |
-| 客户 / 订单 / 商品 | 列表查询；订单列表关联商品名称；按角色过滤可见数据；服务端分页（`?page=&size=`，默认每页 20）；关键词 / 状态 / 排序筛选（条件全在 URL 上，翻页与行内动作自动保留） | ✅ |
-| RFM 分析 | 按回看窗口计算 R/F/M 并分箱打分，输出 RFM 组合码，再折成 8 个经典客户分群（带运营动作）；支持近 3 / 6 / 12 个月 / 全部四种窗口切换 | ✅ |
-| 登录与权限 | 手机号 + 密码登录（werkzeug 哈希）、会话管理、CSRF 防护、客户 / 普通成员 / 管理员三档角色 | ✅ |
-| 支付 / 并发控制 | Redis 锁（token + TTL + Lua 原子释放）+ `@idempotent` 幂等；取消订单走条件 `UPDATE` 状态机，重复操作靠 `rowcount` 识别；发起支付为 `501` 占位 | ✅ 骨架 |
-| 客户下单闭环 | 客户自助注册（`customers` + `users(role=0)` 双表事务）→ 浏览在售商品 → 下单 → 改数量 / 取消 → 员工「确认线下收款」（`1 → 2`）；已支付订单冻结，无退款（P1-B 不做） | ✅ |
-| CRUD 与软删除 | 客户注销 / 商品下架 / 订单取消都只改状态列（不物理 `DELETE`）；写接口分别挂 `@customer_required` / `@staff_required` / `@admin_required`，订单操作再做归属校验 | ✅ |
-| 测试 | pytest（135 条）：数据质量、事务原子性、外键约束、表结构契约、RFM 分箱与客户分群、RFM 页面聚合、路由层与安全（CSRF / 权限 / 越权）、Redis 锁与状态机、幂等缓存、P2 下单闭环、列表分页（`?page=&size=` + `LIMIT/OFFSET`）、列表筛选与排序 | ✅ |
+| 登录与权限 | 手机号 + 密码（werkzeug 哈希）、会话管理、CSRF 防护、三档角色（客户 0 / 员工 1 / 管理员 2） | ✅ |
+| 客户注册 | `customers` + `users(role=0)` 双表事务，注册成功自动登录 | ✅ |
+| 商品 | 列表（客户只看在售）、新增/修改/下架（软删除）、分类与关键词筛选、排序、服务端分页 | ✅ |
+| 订单 | 客户下单/改数量/取消、员工「确认线下收款」（状态机 1 已下单 → 2 已支付 / 3 已取消）、归属校验防 IDOR | ✅ |
+| 支付并发骨架 | Redis 分布式锁（token + TTL + Lua 原子释放）+ `@idempotent` 幂等 + 条件 `UPDATE` 状态机；真实网关未接（预支付固定 501） | ✅ 骨架 |
+| RFM 分析 | 按近 3/6/12 月或全部窗口计算 R/F/M 并分箱打分，折成 8 个客户分群（带运营动作） | ✅ |
+| 数据导入 | CSV 清洗 → 质量校验（必填/重复交易号/金额不一致/异常值）→ 单事务入库，重复导入幂等 | ✅ |
+
+**技术栈**：Flask 3.1（应用工厂 + Blueprint）· MySQL 8 · Redis（redis-py 6.4）· pandas 3.0 / numpy 2.5 · SQLAlchemy 2.1 + PyMySQL · python-dotenv · 原生 Jinja2 + 自建 CSS/JS（零前端依赖）。
+**环境**：Python 3.14 / Windows；依赖精确版本见 `requirements.txt`（含 redis 6.4 与 Python 3.14 的兼容说明）。
 
 ---
 
-## 二、技术栈
+## 三、测试资产（核心）
 
-| 层 | 选型 |
-|---|---|
-| Web 框架 | Flask 3.1（应用工厂 + Blueprint 分模块） |
-| 数据处理 | pandas 3.0、numpy 2.5 |
-| 数据库 | MySQL 8（utf8mb4）+ SQLAlchemy Engine + PyMySQL |
-| 缓存 / 锁 | Redis（服务端 3.0.5 实测）+ redis-py 6.4（本项目只用锁与幂等，不做业务缓存） |
-| 配置 | python-dotenv（敏感信息全部走 `.env`，不入库不入仓） |
-| 测试 | pytest（含临时数据库的集成测试、真 Redis 的锁 / 幂等测试） |
-| 前端 | 自建设计系统（`static/css` + 原生 JS，零第三方 UI 依赖）+ 原生 Jinja2 模板 |
+### 3.1 手工用例集 —— `qa/docs/用例集.csv`
 
-各依赖的精确版本锁在 `requirements.txt`（含 `redis==6.4.0` 这类兼容性坑的说明）。
+- **34 条主用例（P0 7 / P1 27）+ 2 条缺陷回归用例**，11 列结构：
+  `用例编号 / 模块 / 子模块 / 用例标题 / 优先级 / 前置条件 / 操作步骤 / 预期结果 / 实际结果 / 结论 / 缺陷编号`
+- 预期结果写到**可判定**程度：状态码 + 文案/跳转目标 + 数据侧效果 + 「本不该发生的事」。
+- 覆盖分布：
 
-**为什么是 Flask 而不是 Django / FastAPI**：这个项目的核心是数据分析链路，业务表只有 4 张，
-Django 的 ORM / Admin / 迁移体系在这里是负担，而且会遮住 SQL 与事务的细节；
-FastAPI 更适合纯接口服务，本项目要的是服务端渲染的后台页面。Flask 的体积最小、
-每层都可以自己决定用什么，正好把「连接池怎么配」「事务怎么开」这些面试会问的点暴露出来自己处理。
-
----
-
-## 三、目录结构
-
-```
-Flask_app/
-├── app.py                  # 入口：app = create_app()
-├── config.py               # 配置集中处：数据库 / SECRET_KEY / 会话与 CSRF / Redis 与锁参数
-├── conftest.py             # pytest 共享 fixture（临时目录等）
-├── schema.sql              # 全部建表 DDL（不含 CREATE DATABASE，可执行到任意库）
-├── requirements.txt
-├── .env.example            # 配置模板（真实的 .env 不入仓）
-├── views/                  # 路由层（Blueprint，只解析请求 + 渲染响应）
-│   ├── __init__.py         #   应用工厂 create_app() + create_admin CLI + 错误页 / 模板过滤器
-│   ├── auth.py             #   登录 / 登出 / login_required / admin_required / CSRF
-│   ├── clear_input.py      #   数据导入页与写操作（仅管理员）
-│   ├── ge_RFM.py           #   RFM 分析页面（读表 + 调聚合层）
-│   ├── order.py            #   订单 / 商品
-│   ├── pay.py              #   支付接口骨架（锁 + 幂等 + 状态机）
-│   └── user.py             #   客户
-├── utils/                  # 业务与数据层（不 import Flask）
-│   ├── db.py               #   连接池（engine）
-│   ├── loader.py           #   清洗 → 校验 → 入库 的编排与事务
-│   ├── quality.py          #   数据质量规则与报告
-│   ├── rfm.py              #   RFM 计算（纯函数：DataFrame 进、DataFrame 出）
-│   ├── rfm_report.py      #   页面聚合层：KPI / 分群 / 分布 / 环比 / 明细（纯函数）
-│   ├── redis_client.py     #   Redis 惰性单例（可重置，测试可替换）
-│   ├── lock.py             #   分布式锁（redis_lock / order_lock）
-│   ├── idempotent.py       #   @idempotent 幂等装饰器
-│   └── pagination.py       #   列表分页：?page=&size= 参数解析、COUNT + LIMIT/OFFSET 查询助手
-├── templates/              # Jinja2 模板（base.html 基座 + 各页面模板 + partials/_pager.html 分页宏，无第三方 UI 框架）
-├── static/                 # 自建设计系统：css/ app.css + rfm.css；js/ app.js + rfm.js + form.js + import.js
-├── scripts/                # seed_demo.py：一键重建演示库（建库 → 建表 → 导入 CSV → 建管理员）
-├── tests/                  # pytest 用例（rfm / rfm_report / quality / import_db / lock / idempotent / pagination）
-└── docs/                   # 项目文档 + frontend-preview/（页面预览截图）
-```
-
-**分层原则**：`views/` 只负责解析请求与渲染响应；清洗、校验、事务全部在 `utils/`；
-`templates/` 不含业务判断。`utils/rfm.py` 尤其刻意做成**纯函数**（不 import Flask、不碰数据库），
-所以它能被 pytest 直接测，也能在 notebook 里复用。
-
----
-
-## 四、快速开始
-
-### 1. 准备数据库
-
-确保本机 MySQL 服务已启动（页面查询和集成测试都要连它）：
-
-```bash
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS taobao_user DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
-mysql -u root -p taobao_user < schema.sql
-```
-
-### 2. 配置环境变量
-
-复制 `.env.example` 为 `.env` 并填写（数据库 + 会话密钥 + Redis）：
-
-```ini
-DB_USER=root
-DB_PASSWORD=你的数据库密码
-DB_HOST=localhost
-DB_PORT=3306
-DB_NAME=taobao_user
-
-SECRET_KEY=用下面的命令生成
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=1                  # 支付锁 / 幂等单独用 db1，跟业务缓存分开
-REDIS_PASSWORD=             # 有密码就填
-```
-
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-> `.env` 已在 `.gitignore` 中，密码不会进版本库。
-> 未设置 `SECRET_KEY` 时程序会临时生成一个随机值 —— 能跑，但**每次重启所有登录都会失效**。
-
-### 3. 准备 Redis
-
-支付模块依赖 Redis（锁 + 幂等）。本地起一个即可（Windows 可用 Redis 5.x/3.x 的 msi 版）：
-
-```bash
-redis-server.exe            # 或作为服务常驻
-redis-cli ping              # 期望 PONG
-```
-
-> 没起 Redis 也不影响主流程：`/pay/*` 会快速失败，只有锁 / 幂等相关的测试会自动 skip。
-
-### 4. 安装依赖并建账号
-
-```bash
-pip install -r requirements.txt
-
-# 创建后台账号（命令行是下划线 create_admin；不带参数会交互式询问）
-flask --app app create_admin
-# 也可以直接给参数：
-# flask --app app create_admin --phone 13800000000 --username 管理员 --password 你的密码 --role 2
-```
-
-### 5. 一键重建演示库（可选，推荐）
-
-想直接看页面效果，可以跳过上面的建表与导入，用脚本一次完成「建库 → 建表 → 导入 CSV → 建管理员」：
-
-```bash
-python scripts/seed_demo.py
-# 等价于：重建 taobao_rfm_demo 库 → 执行 schema.sql → 导入 Kaggle 原始销售数据 → 建管理员
-# 管理员：手机号 13800000000 / 密码 admin123（角色 = 管理员）
-
-# 用演示库启动（不设置 DB_NAME 时仍连 .env 里的 taobao_user）
-# 推荐：--db 参数在任意终端 / PyCharm「运行」配置里都生效
-python app.py --db taobao_rfm_demo
-
-# 也可以先设环境变量再启动（只在当前终端会话内有效，换终端或点 IDE 运行按钮会失效）
-# PowerShell:
-$env:DB_NAME='taobao_rfm_demo'; python app.py
-# cmd:
-set DB_NAME=taobao_rfm_demo&& python app.py
-```
-
-> 启动时控制台会打印当前实际连接的数据库名（`[*] 数据库: xxx`），
-> 如果登录提示账号密码错误，先看这一行是不是你以为的库。
-
-> 脚本默认**只**重建 `taobao_rfm_demo`；把 `--db` 指向别的库名时必须再加 `--yes` 才会执行，
-> 避免误删 `taobao_user` 里的数据。`--csv` 可换数据文件，`--phone / --username / --password`
-> 可改管理员账号。导入完成后共 812 位客户、1,999 笔已支付订单。
-
-### 6. 启动
-
-```bash
-python app.py
-# 或带调试器：
-flask --app app run --debug
-```
-
-浏览器打开 `http://127.0.0.1:5000` → 跳转登录页 → 登录后顶栏是平铺导航：
-**导入数据 / 客户管理 / 订单管理 / 产品管理 / 数据分析**（客户账号看到的是 商品中心 / 我的订单）。
-管理员先从「导入数据」载入示例 CSV（示例数据在 `static/archive/`，历史流水会按已支付立账；
-若库里已有页面产生的业务数据（注册客户 / 下单 / 手工商品），导入默认会被拦下，
-需要在导入页点「清空并重建」并输入「清空」二次确认，员工与管理员账号会保留），
-再点「数据分析」查看 RFM 分层的 KPI、气泡矩阵、分布图和客户明细。
-
-> 客户账号从 `/register` 自助注册（`users.role=0`，同一事务里同时写 `customers` 表）；
-> 员工 / 管理员账号用 `flask create_admin` 创建。想完整体验「下单 → 员工确认收款」，
-> 建议顺序是：`python scripts/seed_demo.py` 得到演示库 → 管理员导入 CSV → 再注册客户下单。
-
-### 7. 跑测试
-
-```bash
-pytest -v
-```
-
-- MySQL 相关的集成测试会创建**临时库**、建表、灌数据，结束后自动清理，不会污染 `taobao_user`；
-- Redis 相关的测试用 `db1` 且只操作 `idem:unittest:*` 前缀的键，跑完清干净，不会 `FLUSHDB`；
-- 本机没起 **MySQL** 或 **Redis** 时，依赖它们的集成用例会自动 skip（不是失败）：
-  MySQL 不可用时是入库 / 路由 / 表结构契约那批，Redis 不可用时是锁 / 幂等两组。
-  所以 `skipped` 变多通常只是服务没起 —— 两个服务都在时才是完整的 **135 passed**。
-
----
-
-## 五、数据模型
-
-```
-customers (客户主数据)          products (商品主数据)
-   customer_id  PK                 product_id  PK
-   region                          product_name / product_category
-   cus_status                      ppu（当前单价） / product_status
-        │                                │
-        │  (P2: users.customer_id FK)    │
-        └──────────┬─────────────────────┘
-                   ▼
-                orders (交易事实表)
-                   order_id       PK  自增代理键
-                   transaction_id UNIQUE 业务流水号（CSV: T… / Web: W…）
-                   order_date / customer_id FK / product_id FK
-                   quantity / ppu（成交时单价快照） / amount
-                   order_status   支付状态机：1 已下单 / 2 已支付 / 3 已取消
-                   paid_at / paid_by   线下收款确认时间、操作员工（审计字段）
-                   INDEX(order_date) INDEX(customer_id) INDEX(product_id)
-
-                users (账号表：员工 / 管理员 + 客户)
-                   id PK / phone UNIQUE / username / password_hash
-                   role（0 客户 / 1 普通成员 / 2 管理员） / is_active / created_at
-                   customer_id（仅 role=0 有值，UNIQUE，FK → customers）
-```
-
-
-## 六、RFM 计算口径
-
-**基准日 = 数据集里最新的订单日**（不是 `today`）：历史数据用"今天"当基准，会让所有客户的 R 同时变大，跨年数据完全失真。
-
-**观察窗口**支持「近 3 个月 / 近 6 个月 / 近一年 / 全部」四种，页面右上角可切换。**先切窗口、再在窗口内排名分箱** ——
-顺序反了得到的是"全量排名的一个子集"，而不是"窗口内的排名"（实测近 3 个月窗口下 93.5% 的客户分组会被改写）。
-
-| 指标 | 本项目口径 | 打分 |
+| 模块 | 条数 | 代表性覆盖点 |
 |---|---|---|
-| **R**（Recency） | `R = 基准日 − 客户窗口内最后一次交易日期`（天），越小越近 | 先 `rank(method='first')` 打散再 `qcut` 三等分，R 越小分越高（3/2/1） |
-| **F**（Frequency） | 窗口内**交易笔数**（`COUNT(transaction_id)`），不是购买件数 | 默认与 R/M 一致等频三档；`rfm_table(..., f_mode='fixed')` 可切固定业务阈值 `cut([0,1,3,∞))` → 1 / 2 / 3（页面不暴露这个开关） |
-| **M**（Monetary） | 窗口内消费总额 `SUM(amount)` | 先 `rank(method='first')` 打散再 `qcut` 三等分 → 1 / 2 / 3 |
+| 登录 | 11 | 前端 required 拦截与绕过前端后的后端校验（分别成条）、12 位/非数字手机号、密码错、**手机号不存在与密码错的文案逐字一致（防账号枚举）**、停用账号 403、已登录再访问 /login、未登录访问订单列表、缺 CSRF 400 |
+| 注册 | 11 | 手机号 10/12 位与号段、昵称 64/65 边界、地区必填、密码 7/8 位边界、两次密码不一致、重复注册 409、缺 CSRF 400 |
+| 商品 | 12 | 列表与分页、关键词 LIKE 模糊、分类精确等值、上下架筛选、ID/单价排序、非法参数回落、**客户带 `?status=2` 被服务端忽略（越权防护）**、客户访问新增页 403、不存在 product_id 的 302 行为 |
 
-- **为什么分箱前要先 `rank(method='first')`**：R/M 的重复值极多（实测 812 个客户里只有 166 个不同的 R 值，
-  很多客户最后一次购买是同一天），直接 `qcut` 会在重复边界上报 `Bin edges must be unique`；
-  而 `duplicates='drop'` 会把同值客户并进更少的箱，极端情况（全列同值）整列变 `NaN`、静默丢掉全部客户。
-  rank 让值唯一，边界永不重复。
-  - 已知代价（面试可以主动说）：并列值会被**先后顺序**拆到相邻两档，所以严格意义上不同值可能同分；
-    本项目现存数据里走 `rfm_table` 时结果与行序无关（`groupby` 默认按 key 排序），这点已实测确认。
-- F 用**交易笔数**而不是**购买件数**：频次衡量的是"来店次数"，一次买 100 件和分 100 次买
-  在客户价值上是两回事。
-- F 默认用等频而不是固定阈值：实测同一套固定阈值 `1 / 2-3 / 4+` 在近 3 个月窗口上的分布是
-  `{1: 296, 2: 98, 3: 4}`（74% 挤在最低档，F 维度几乎失去区分度），近一年窗口才均衡
-  `{1: 292, 2: 357, 3: 163}`。根因是短窗口人均只有 1.34 笔，"来 4 次以上"本来就极罕见。
-- 三项得分拼接为 RFM 组合码（如 `333`），共 27 种组合。
+### 3.2 接口自动化 —— `qa/api`（pytest + requests，11 条）
 
-### 从 27 种组合到 8 个分群
+**分层**：`config.py`（环境与账号）→ `client.py`（Session 封装：URL、超时、CSRF token 获取、登录、统一断言）→ `conftest.py`（fixtures：服务探活、匿名/员工/客户会话）→ **用例只写业务断言**。
 
-27 种组合没法一一配运营动作（运营只关心"这个人群值不值得投、该投什么"），所以再折一层：
-**每一维的 3 档折成「高 / 低」两档 —— 3 = 高，1/2 = 低**，2×2×2 正好落回经典的 8 分群。
-折档规则在 `utils/rfm.py` 的 `band_of()` / `segment_key()` / `segment_of()`，分群定义（名字 / 徽章色 / 运营动作）
-集中在 `SEGMENTS` 字典里；页面「分群明细与运营动作」面板和表格最后一列都由它驱动，模板里不写业务判断。
-
-| 分群 | R×F×M | 运营动作 |
-|---|---|---|
-| 重要价值客户 | 高·高·高 | 保持：VIP 服务 + 专属权益，重点维护防流失 |
-| 重要唤回客户 | 低·高·高 | 唤回：专属召回券 + 客服回访，这类人丢了最可惜 |
-| 重要深耕客户 | 高·低·高 | 提频次：关联品类推荐 + 复购提醒 |
-| 重要挽留客户 | 低·低·高 | 最高优先级挽回：大额券 / 一对一沟通 |
-| 一般价值客户 | 高·高·低 | 提客单：满减 / 套装搭配，把高频低客单往上带 |
-| 一般保持客户 | 低·高·低 | 唤醒 + 提客单：低成本触达，试探性优惠 |
-| 一般发展客户 | 高·低·低 | 培育：新客券 + 首购引导，先让他买第二次 |
-| 一般挽留客户 | 低·低·低 | 低成本维持：短信触达即可，不投广告费 |
-
-- **为什么只有最高档算"高"**：分档本身就是相对排名（前 1/3 / 中 1/3 / 后 1/3），折两档时取"最高档 = 高"最简单也最好解释；
-  23 种剩下 11 种"中档"不会再单独造分群，否则 27 种又回来了。
-- 表里同时保留 `rfm_group`（如 `213`）与 `segment`（中文分群名）：前者是原始三位码，方便下钻和排查；
-  后者是给运营看的结论。面试时先讲 27 种组合的细粒度，再讲"为什么运营只需要 8 类"。
-
-
----
-
-## 七、接口一览
-
-| 方法 | 路径 | 说明 | 权限 |
-|---|---|---|---|
-| GET | `/` | 跳转客户列表 | 登录 |
-| GET/POST | `/login` | 登录页 / 提交登录（表单字段 `mobile` / `pwd` / `csrf_token`） | 匿名 |
-| POST | `/logout` | 退出登录 | 登录 |
-| GET | `/customer/list` | 客户列表（LEFT JOIN 账号状态） | **员工 / 管理员** |
-| GET/POST | `/customer/update` | 修改客户地区 | **员工 / 管理员** |
-| POST | `/customer/delete` | 软注销：`cus_status=2` + 停用关联账号 | **管理员** |
-| GET | `/order/list` | 订单列表（客户只看自己的；员工 / 管理员看全部） | 登录 |
-| GET/POST | `/order/create` | 客户下单（金额按 DB 单价计算；一次性表单 token 防重复提交） | **客户** |
-| GET/POST | `/order/update` | 修改数量（仅 `order_status=1`；客户限本人） | 登录 + 归属校验 |
-| POST | `/order/delete` | 取消订单（`1 → 3`，复用取消状态机） | 登录 + 归属校验 |
-| GET | `/product/list` | 商品列表（客户只看在售） | 登录 |
-| GET/POST | `/product/add` | 新增商品（`product_id` 自动生成 `SKU-` 前缀） | **员工 / 管理员** |
-| GET/POST | `/product/update` | 修改商品名称 / 分类 / 单价 / 上下架 | **员工 / 管理员** |
-| POST | `/product/delete` | 下架（`product_status=2`，历史订单保留） | **员工 / 管理员** |
-| GET/POST | `/register` | 客户自助注册（`customers` + `users(role=0)` 双表事务） | 匿名 |
-| GET / POST | `/login` / `/logout` | 登录 / 登出 | 匿名 / 登录 |
-| GET | `/ge_rfm?window=` | RFM 分析结果页（`window` 取 `3m` / `6m` / `12m` / `all`） | **员工 / 管理员** |
-| POST | `/clear_input` | 清空并重新导入交易数据（检测到页面产生的业务数据默认 409 拒绝；导入页「清空并重建」可显式授权，保留员工/管理员账号） | **管理员** |
-| GET | `/pay/order/<order_id>` | 查询订单支付状态（`payable` 表示是否可支付） | 登录 + 归属校验 |
-| POST | `/pay/prepay/<order_id>` | 发起支付：锁 + 幂等 + 状态校验是真的，**网关未接 → 固定 501** | 登录 + 幂等 + 归属校验 |
-| POST | `/pay/cancel/<order_id>` | 取消未支付订单（`1 → 3`，条件 `UPDATE`） | 登录 + 幂等 + 归属校验 |
-| POST | `/pay/confirm/<order_id>` | 员工确认线下收款（`1 → 2`，写 `paid_at` / `paid_by`） | **员工 / 管理员** |
-
-写方法（POST / PUT / PATCH / DELETE）统一在 `before_app_request` 里校验 CSRF：
-浏览器表单走 `csrf_token` 字段，接口调用可放 `X-CSRF-Token` 头；`/pay/*` 三个接口还需带
-`X-Request-Id`（幂等键），其余 HTML 表单接口用 CSRF token + 一次性 `form_token` 即可。
-
----
-
-## 八、测试与验证
-
-`pytest` 共 **135 条**，按文件分：
+**断言四层**：状态码 → `Location` 跳转目标 → 页面文案 → 数据侧效果（同会话再访问受保护页、查库比对）。
 
 | 文件 | 条数 | 覆盖 |
 |---|---|---|
-| `tests/test_rfm.py` | 15 | 观察窗口切分、先切窗口再分箱、R 反向打分、并列值 / 小样本、组合码、三档折两档与 8 分群汇总 |
-| `tests/test_rfm_report.py` | 11 | 页面聚合层：KPI / 分群行 / 直方图分桶合计 / 切点与分档一致 / 环比与「全部」无上一周期 / 人民币折算 / 明细行 |
-| `tests/test_quality.py` | 11 | 必填列、重复交易号、金额不一致、异常值阈值、报告结构 |
-| `tests/test_import_db.py` | 19 | 临时库建表、事务原子性、外键约束、重复导入、表结构契约、路由与安全（登录跳转 / 管理员校验 / CSRF） |
-| `tests/test_lock.py` | 7 | 互斥、token 校验、TTL 续期、放锁、锁忙异常、条件 `UPDATE` 的 `rowcount` |
-| `tests/test_idempotent.py` | 7 | 2xx 写缓存 / 重放、非 JSON 不缓存、状态码保留、缓存损坏降级、旧格式兼容、缺 request_id |
-| `tests/test_p2_crud.py` | 49 | P2 下单闭环：客户注册 / 下单 / 改数量 / 取消、三档角色权限、订单归属（防 IDOR）、软删除与注销恢复、员工确认收款、导入守卫、CSRF 与表单参数校验、列表筛选与排序（状态 / 关键词 / 排序 / 非法参数回落 / LIKE 转义 / 翻页保留筛选） |
-| `tests/test_pagination.py` | 16 | 分页纯函数与查询助手：`parse_page` / `parse_size` 白名单回落、`normalize` 越界夹紧与空表、`page_window` 省略号序列、`paginate` 的 COUNT + LIMIT/OFFSET 与过滤参数；筛选参数 `parse_q` / `like_pattern`（`%`、`_`、反斜杠转义）/ `parse_choice` 白名单 |
+| `test_login.py` | 2 | 登录成功（302 + Location + 登录态生效）、密码错（401 + 统一提示） |
+| `test_reg.py` | 1 | 注册成功（302 → `/product/list`，自动登录） |
+| `test_product.py` | 4 | 员工列表、客户越权访问新增页 403、客户视角忽略 status、非法参数回落到默认 20 条 |
+| `test_order.py` | 4 | 员工订单列表、未登录 302 到登录页、员工不能替客户下单、缺 CSRF 400 |
 
-另外做过 9 项针对**真实 Redis** 的手工验证（锁互斥、token 不匹配不误删、`PTTL` 续期、
-TTL 到期自动失效、`SCRIPT FLUSH` 后 `EVALSHA` 自动回退重载、8 线程并发临界区最多 1 人），
-结论与脚本见 [`docs/P1-支付与Redis锁.md`](docs/P1-支付与Redis锁.md) 第 12 节。
+### 3.3 UI 冒烟 —— `qa/web`（Selenium + Page Object，3 条）
 
----
+- Page Object 封装页面元素与动作；**显式等待**（不 sleep）；失败自动截图存 `qa/web/data/screenshots/`。
+- 覆盖：登录成功进客户管理、密码错误提示、未登录访问 `/order/list` 被重定向。
 
-## 九、已知限制与后续计划
+### 3.4 开发期回归底座 —— `tests/`（pytest，135 条）
 
-按优先级：
+改代码后「能不能立刻知道挂没挂」的地基：RFM 口径与分箱、数据质量校验、事务原子性与外键、表结构契约、**Redis 锁（7 条）与幂等（7 条）**、权限/越权/CSRF、分页与筛选转义、P2 下单闭环。MySQL/Redis 未启动时相关集成用例自动 skip。
 
-- [x] **7 个 CRUD 空壳**：已落地（2026-10-20）—— 7 个空壳接口全部实现，删除类操作改为软删除
-      （`cus_status` / `product_status` / `order_status`），订单操作带归属校验；客户注册 / 下单 /
-      员工确认收款闭环打通；全套 135 条测试全绿。代码手册见 [`docs/P2-实施手册-00-索引.md`](docs/P2-实施手册-00-索引.md)。
-- [x] **列表页服务端分页**：已落地 —— 订单 / 客户 / 商品列表改为 `?page=&size=` + `LIMIT/OFFSET`
-      （`utils/pagination.py` + `templates/partials/_pager.html` 宏，默认每页 20、可选 10/20/50/100），
-      单页 HTML 从订单页约 1.5MB 降到约 21KB；改数量 / 删除 / 收款等动作后仍回到原页码。
-      客户列表按客户 ID 数字自然序（Customer-9 在 Customer-10 前）。RFM 客户明细表仍是浏览器端分页
-      （分群筛选需要全量行）。
-- [x] **列表筛选与排序**：已落地 —— 订单（关键词搜订单号 / 交易号 / 客户 ID / 产品名、按状态筛、
-      按日期或金额排序）、客户（关键词搜客户 ID / 地区 / 手机号、按客户状态与账号状态筛、按 ID 或地区排序）、
-      商品（关键词、按分类与上下架状态筛、按 ID 或单价排序）。筛选条件全部走 URL（`?q=&status=&sort=`），
-      翻页、改每页条数、行内「改数量 / 取消 / 确认收款」动作都会自动带上；`%`、`_`、`'` 等输入已做
-      LIKE 转义与白名单校验，不会拼进 SQL；筛空时给的是「没有符合条件」而不是「暂无数据」。
-      暂不支持日期区间与多选筛选。
-- [ ] **退款流程**：已支付订单当前冻结、无退款 —— 属于 P1-B 明确不做的范围，见 P1 文档第 11 节；
-      真要做需要状态机加「退款中 / 已退款」并写流水表，属于另一个完整功能。
-- [x] **客户分层命名**：已落地 —— 三维各 3 档折成高/低两档（3 = 高），2×2×2 落回经典 8 分群
-      （重要价值 / 重要唤回 / 重要深耕 / 重要挽留 / 一般价值 / 一般保持 / 一般发展 / 一般挽留），
-      页面带「分群明细与运营动作」面板，表格每行带分群徽章。
-- [x] **统一异常处理**：已落地 —— 403 / 404 / 405 / 500 统一渲染中文错误页（`templates/error_t.html`），
-      500 记录服务端日志；权限拦截与越权访问不再返回纯文本。
-- [ ] **多格式接入**：`static/archive/` 下的另一种 CSV 结构（30000 行版本）暂不支持，
-      计划用「新增一个 loader 而不改已有代码」的方式扩展。
-- [ ] **物化 RFM 结果表**：当前每次访问实时计算，数据量上去后需要预计算。
-- [x] **前端资源自建**：已去掉 Bootstrap / jQuery，改为自建设计系统（`static/css/app.css`
-      + `static/js/*.js`，零第三方前端依赖、零构建步骤），页面风格统一为深色顶栏 + 轻卡片。
-- [x] **支付模块止于骨架**：真实网关 / 回调验签 / 支付流水表 / 退款（P1-B）**已决定不做**，
-      接口契约与并发控制保留，见 `docs/P1-支付与Redis锁.md` 第 11 节。
+### 3.5 缺陷管理与复盘 —— `qa/docs/`
+
+| 文件 | 内容 |
+|---|---|
+| `缺陷复盘-BUG001.md` | 登录接口 500（SQL 列名拼错）：现象、复现、假设-验证定位、根因、修复、回归、预防 |
+| `缺陷复盘-BUG002.md` | 注册接口 500 且留下脏数据（SELECT 少取列 → `_save_login` KeyError）：含脏数据清理 SQL 与复核口径 |
+| `定位记录表.csv` | 两个缺陷排查过程中的假设、验证动作与证据 |
+| `缺陷演练-3条用例.md` | 从手工用例执行到缺陷单的转化记录 |
 
 ---
 
-## 十、项目文档
+## 四、执行结果（2026-10-30 实测）
+
+| 资产 | 命令 | 结果 |
+|---|---|---|
+| 手工用例 | 手工执行（Edge DevTools + MySQL） | 34 条主用例：**31 通过 / 2 不通过（转 BUG-001、BUG-002）/ 1 设计差异（PD-12）**；2 条回归用例通过 |
+| 接口自动化 | `pytest qa/api -q` | **11 passed** |
+| UI 冒烟 | `pytest qa/web -q` | **3 passed**（截图留档） |
+| 开发期回归 | `pytest tests -q` | **135 passed** |
+
+---
+
+## 五、两个真实缺陷（P0，均导致 HTTP 500）
+
+| 编号 | 现象 | 根因 | 修复与回归 |
+|---|---|---|---|
+| BUG-001 | 员工输入正确手机号+密码登录，`POST /login` 返回 500，与密码对错无关（SQL 阶段就报错） | 手写 SQL 列名拼错：`cusrtomer_id`，MySQL 报 `1054 Unknown column`，真实列名 `customer_id` | 改列名；补登录成功接口用例断言 302 + Location + 登录态 |
+| BUG-002 | 客户注册后 `POST /register` 返回 500，但数据库已写入（脏数据），再注册同号返回 409 | 注册成功后的 `SELECT` 少取 `customer_id`，`_save_login` 无条件读 `row["customer_id"]` → `KeyError` | 补列 + `_save_login` 加 `keys()` 存在性守卫；清理脏数据；补注册成功接口用例 |
+
+另有一处**设计差异**（PD-12）：员工访问不存在的商品编辑页，原定 404，实际 302 + flash「商品不存在」。判定为服务端渲染项目的合理设计，不作为缺陷，已建议写进接口文档约定。
+
+---
+
+## 六、怎么跑起来 / 怎么跑测试
+
+### 6.1 起服务
+
+```bash
+# 1) MySQL：建库建表
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS taobao_user DEFAULT CHARACTER SET utf8mb4;"
+mysql -u root -p taobao_user < schema.sql
+
+# 2) 配置：复制 .env.example 为 .env，填数据库、SECRET_KEY、Redis
+python -c "import secrets; print(secrets.token_hex(32))"
+
+# 3) 依赖与账号
+pip install -r requirements.txt
+flask --app app create_admin --phone 13900000000 --username 测试员工 --password 你的密码 --role 1
+
+# 4) 启动
+python app.py            # http://127.0.0.1:5000
+```
+
+> 想直接看页面效果：`python scripts/seed_demo.py` 一键重建演示库（812 位客户 / 1,999 笔已支付订单），再 `python app.py --db taobao_rfm_demo` 用演示库启动。
+
+### 6.2 跑测试（三套资产，前置条件不同）
+
+| 套件 | 命令 | 前置条件 |
+|---|---|---|
+| 接口自动化 | `pytest qa/api -q` | Flask 服务已启动；`qa/.env` 里配好 `BASE_URL`、员工账号（客户账号可选，未配则越权类用例自动 skip） |
+| UI 冒烟 | `pytest qa/web -q` | 服务已启动 + 本机 Chrome + 已装 selenium；`HEADLESS=1` 无头运行 |
+| 开发期回归 | `pytest tests -q` | MySQL 与 Redis 已启动（未启动时相关集成用例自动 skip，不是失败） |
+
+`qa/.env` 由 `qa/.env.example` 复制而来（账号与地址，不含真实密码；`.env` 已在 `.gitignore`）。
+
+---
+
+## 七、已知测试缺口（诚实清单，也是下一步计划）
+
+| 缺口 | 现状 | 计划 |
+|---|---|---|
+| 幂等 / 并发 / 支付链路 | 已有 Redis 锁与幂等的**单元级**测试（各 7 条），但**缺接口级**用例：同一 `X-Request-Id` 重放、并发重复提交、状态机并发竞争 | 补 `qa/api/test_pay_*.py`：幂等键重放、8 线程并发预支付、取消与支付竞争 |
+| 性能 / 压测 | 无（Jmeter 场景未落地） | 登录 + 商品列表压测脚本与指标报告（TP90 / 吞吐 / 错误率） |
+| UI 自动化 | 仅 3 条冒烟，无数据驱动 | 补下单主流程 + 参数化登录 |
+| RFM 页面 | 只有开发侧聚合函数测试，无接口/UI 自动化 | 补 `/ge_rfm` 接口断言（窗口切换、分群行数） |
+| 数据构造 | 依赖固定账号与本地数据 | 抽数据工厂 fixture，用例自造数据、跑完清理 |
+
+---
+
+## 八、接口清单（被测对象）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET/POST | `/login` | 登录（表单字段 `mobile` / `pwd` / `csrf_token`） | 匿名 |
+| POST | `/logout` | 登出 | 登录 |
+| GET/POST | `/register` | 客户注册（双表事务 + 自动登录） | 匿名 |
+| GET | `/product/list` | 商品列表（客户只看在售） | 登录 |
+| GET/POST | `/product/add` · `/product/update` | 新增 / 修改商品 | 员工 / 管理员 |
+| POST | `/product/delete` | 下架（`product_status=2`） | 员工 / 管理员 |
+| GET | `/order/list` | 订单列表（客户只看自己） | 登录 |
+| GET/POST | `/order/create` · `/order/update` | 下单 / 改数量（仅 `order_status=1`） | 客户 + 归属校验 |
+| POST | `/order/delete` | 取消订单（1 → 3） | 登录 + 归属校验 |
+| GET | `/customer/list` | 客户列表 | 员工 / 管理员 |
+| GET | `/ge_rfm?window=` | RFM 分析页（`3m` / `6m` / `12m` / `all`） | 员工 / 管理员 |
+| POST | `/pay/prepay/<order_id>` · `/pay/cancel` · `/pay/confirm` | 支付骨架：锁 + 幂等 + 状态机 | 登录 / 员工 |
+
+写操作统一校验 CSRF（表单 `csrf_token` 或 `X-CSRF-Token` 头）；`/pay/*` 额外需要 `X-Request-Id` 作为幂等键。
+
+---
+
+## 九、文档索引
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/01-改造路线图.md`](docs/01-改造路线图.md) | 每个改造点的**原因、方案取舍、面试讲法**，以及 RFM 口径是怎么从"按年"演进到"观察窗口"的 |
-| [`docs/02-面试题库.md`](docs/02-面试题库.md) | 结合本项目的面试问答准备（项目类 + 八股 + HR） |
-| [`docs/P0-2-登录权限与CSRF.md`](docs/P0-2-登录权限与CSRF.md) | 登录 / 会话 / 权限分级 / CSRF 的实现与踩坑记录 |
-| [`docs/P1-支付与Redis锁.md`](docs/P1-支付与Redis锁.md) | 锁 / 幂等 / 状态机的完整实现、端到端时序、生产注意与**面试口径**（首页有一页速查图） |
-| [`docs/P2-实施手册-00-索引.md`](docs/P2-实施手册-00-索引.md) | P2 全套实施手册：01 总览与库表 / 02 认证与订单核心 / 03 页面路由与导入保护 / 04 模板 / 05 测试与面试口径，附 `P2-migrate.sql` |
-| [`docs/00-使用说明.md`](docs/00-使用说明.md) | 本地环境与改造步骤说明 |
+| `qa/docs/用例集.csv` · `缺陷复盘-BUG001/002.md` | 测试资产本体（用例与缺陷复盘） |
+| `docs/P1-支付与Redis锁.md` | 锁 / 幂等 / 状态机实现、真实 Redis 的 9 项手工验证、面试口径 |
+| `docs/P0-2-登录权限与CSRF.md` | 登录、权限分级、CSRF 实现与踩坑 |
+| `docs/P2-实施手册-00-索引.md` | 下单闭环与页面路由的实施记录 |
+| `docs/01-改造路线图.md` | 每个工程决策的原因、取舍与面试讲法 |
+| `docs/frontend-preview/` | 页面截图预览 |
+
+---
+
+## 十、三分钟自述骨架（面试用）
+
+1. **30 秒**：项目是什么 + 我既写业务也做测试（体现能读源码定位问题）。
+2. **60 秒**：测试体系怎么分层 —— 34+2 条手工用例（设计方法、P0 优先级、可判定预期）→ 11 条接口自动化（config→client→conftest→用例、四层断言）→ 3 条 PO 冒烟 → 135 条回归底座。
+3. **60 秒**：两个 500 级缺陷的定位故事（假设-验证：排除账号/前端 → 看 traceback → 对照表结构/源码 → 修复 → 补自动化回归）。
+4. **30 秒**：现在缺什么（幂等/并发/压测），下一步怎么补 —— 说得出缺口比说"全都会"可信。

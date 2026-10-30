@@ -30,4 +30,4 @@ app = create_app()
 
 if __name__ == '__main__':
     print(f'[*] 数据库: {os.getenv("DB_NAME") or "taobao_user"}')
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=False, use_reloader=False)

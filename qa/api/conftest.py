@@ -1,9 +1,56 @@
+import secrets
+import string
+from multiprocessing import connection
+
 import pytest
 import requests
+from sqlalchemy import text
 
 from .client import ApiClient
 
 from .config import settings
+from utils import db
+
+def search_phone(phone):
+    with db.engine.begin() as conn:
+        row = conn.execute(text(
+            'select count(*) from users where phone = :phone'
+        ),
+        {'phone': phone}).scalar()
+    return row
+
+def gen_phone():
+    # 1 + 第二位3-9 + 9位数字
+    phone = "1" + secrets.choice("3456789") + "".join(
+        secrets.choice(string.digits) for _ in range(9)
+    )
+    while search_phone(phone) :
+        phone = "1" + secrets.choice("3456789") + "".join(
+            secrets.choice(string.digits) for _ in range(9)
+        )
+    return phone
+
+def gen_password(length=8):
+    lowers = string.ascii_lowercase
+    uppers = string.ascii_uppercase
+    digits = string.digits
+    specials = "!@#$%^&*"
+    all_chars = lowers + uppers + digits + specials
+
+    # 先保证四类字符各一个
+    pwd = [
+        secrets.choice(lowers),
+        secrets.choice(uppers),
+        secrets.choice(digits),
+        secrets.choice(specials),
+    ]
+    # 补齐剩余位数
+    pwd += [secrets.choice(all_chars) for _ in range(length - 4)]
+
+    # 安全随机打乱
+    rng = secrets.SystemRandom()
+    rng.shuffle(pwd)
+    return "".join(pwd)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -45,6 +92,13 @@ def customer_account():
                 settings.customer_password,
                 )
 
+@pytest.fixture
+def register_account():
+    phone = gen_phone()
+    password = gen_password()
+    return (phone, password)
+
+
 
 @pytest.fixture
 def staff_login(staff_account):
@@ -79,3 +133,4 @@ def staff_client(staff_login):
 def customer_client(customer_login):
     api = customer_login[0]
     return api
+

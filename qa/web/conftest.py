@@ -3,18 +3,20 @@ import sys
 import pytest
 from selenium import webdriver
 from qa.api.config import settings
-from qa.web.ui_client import UiClient
+
 import logging
 
+from qa.web.base.base_page import BasePage
+# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
-        #,logging.FileHandler('qa_web.log')
+        ,logging.FileHandler('qa_web.log')
     ]
 )
-
+# 创建浏览器连接，执行测试后回收
 @pytest.fixture(scope="function")
 def driver():
     options = webdriver.EdgeOptions()
@@ -25,21 +27,18 @@ def driver():
     driver.quit()
 
 
-@pytest.fixture()
-def ui_client(driver):
-    client = UiClient(driver = driver)
-    return client
+
 
 # 截图钩子,测试失败截图保存
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)
-def pytest_runtest_makereport(item, call):
+def pytest_runtest_makereport(item):
     outcome = yield
     rep = outcome.get_result()
 
     if rep.when == 'call' and rep.failed:
-        ui_client = item.funcargs.get("ui_client")
-        if ui_client:
-            ui_client.screenshot(rep)
+        driver = item.funcargs.get("driver")
+        if driver:
+            BasePage(driver).screenshot(name = item.name)
 
 @pytest.fixture()
 def staff_account():

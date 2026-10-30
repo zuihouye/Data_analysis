@@ -9,14 +9,14 @@ from selenium.common import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from qa.api.config import settings
+from qa.web.config import settings
 
 import logging
 web_logger = logging.getLogger(__name__)
 
 
 
-class UiClient:
+class BasePage(object):
     def __init__(self,driver,timeout = None,base_url = None):
         self.base_url = (base_url or settings.base_url).rstrip('/')
         self.driver = driver
@@ -75,7 +75,7 @@ class UiClient:
         return self
 
     # 截图
-    def screenshot(self,name = "debug",folder ="qa/web/screenshots"):
+    def screenshot(self,name = "debug",folder ="qa/web/data/screenshots"):
         # 创建文件夹
         os.makedirs(folder,exist_ok=True)
         # 时间戳

@@ -1,20 +1,21 @@
-from . import customer_list_page
-from .login_page import LoginPage
-from .customer_list_page import CustomerListPage
+from qa.web.page.login_page import LoginPage
+from qa.web.page.customer_list_page import CustomerListPage
 from selenium.webdriver.support import expected_conditions as EC
 
 
 class TestLoginPage:
     # 员工登录成功，
-    def test_login(self, staff_account, ui_client):
-        page = LoginPage(ui_client)
-        customer_page = CustomerListPage(ui_client)
+    def test_login(self, staff_account, driver):
+
+        page = LoginPage(driver)
+        customer_page = CustomerListPage(driver)
+
         # 打开并进入登录页面
         page.open('/login')
         # 登录
         page.click_login(staff_account[0], staff_account[1])
         # 等待跳转/customer/list
-        ui_client.wait_until(
+        page.wait_until(
             EC.url_contains('/customer/list')
         )
         assert '/customer/list' in page.get_url()
@@ -23,8 +24,8 @@ class TestLoginPage:
 
 
     # 密码错误
-    def test_login_wrong_password(self, ui_client, staff_account):
-        page = LoginPage(ui_client)
+    def test_login_wrong_password(self,staff_account,driver):
+        page = LoginPage(driver)
         # 打开并进入登录页面
         page.open('/login')
         # 登录
@@ -36,8 +37,8 @@ class TestLoginPage:
 
 
     # 未登录访问被拦截
-    def test_anonymous_redirect(self, ui_client):
-        page = LoginPage(ui_client)
+    def test_anonymous_redirect(self, driver):
+        page = LoginPage(driver)
         # 直接访问订单页面
         page.open('/order/list')
         # 等待返回登录页面
